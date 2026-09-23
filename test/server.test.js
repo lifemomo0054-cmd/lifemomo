@@ -5,7 +5,7 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { createServer, normalizeServiceKey, parseStorePage } = require('../server.js');
+const { createServer, normalizeServiceKey, parseStorePage, cleanPastedKey, upsertServiceKey } = require('../server.js');
 
 const SERVICE_KEY = 'test+key/abc==';
 const LARGE = [
@@ -116,6 +116,20 @@ test('Encoding 키를 넣어도 Decoding 키로 맞춘다', () => {
   assert.equal(normalizeServiceKey('test%2Bkey%2Fabc%3D%3D'), SERVICE_KEY);
   assert.equal(normalizeServiceKey(`  ${SERVICE_KEY}\n`), SERVICE_KEY);
   assert.equal(normalizeServiceKey(''), '');
+});
+
+test('붙여 넣은 인증키에서 변수 이름·따옴표·주석 기호를 걷어 낸다', () => {
+  const key = 'c1dc3d090a0b6bc24d26265be5a1e07ce4c50a358bf8fa285872a3e8e4fc65f1';
+  for (const pasted of [key, ` ${key} `, `DATA_GO_KR_SERVICE_KEY=${key}`, `# DATA_GO_KR_SERVICE_KEY= ${key}`, `DATA_GO_KR_SERVICE_KEY ${key}`, `"${key}"`]) {
+    assert.equal(cleanPastedKey(pasted), key, pasted);
+  }
+  assert.equal(cleanPastedKey(''), '');
+});
+
+test('.env에 인증키 줄을 넣거나 바꾸고 나머지 줄은 그대로 둔다', () => {
+  assert.equal(upsertServiceKey('', 'k1'), 'DATA_GO_KR_SERVICE_KEY=k1\n');
+  assert.equal(upsertServiceKey('# 설명\nDATA_GO_KR_SERVICE_KEY=\n# PORT=3000\n', 'k$&2'), '# 설명\nDATA_GO_KR_SERVICE_KEY=k$&2\n# PORT=3000\n');
+  assert.equal(upsertServiceKey('PORT=4000\n', 'k3'), 'DATA_GO_KR_SERVICE_KEY=k3\nPORT=4000\n');
 });
 
 test('item이 하나뿐이거나 {item: [...]} 형태여도 읽는다', () => {

@@ -359,31 +359,102 @@ function sendText(res, status, text) {
   res.end(text);
 }
 
-if (require.main === module) {
+// 붙여 넣은 값에 "DATA_GO_KR_SERVICE_KEY=", 따옴표, 주석 기호가 섞여 있어도 키만 남긴다.
+function cleanPastedKey(input) {
+  return String(input || '')
+    .trim()
+    .replace(/^#?\s*DATA_GO_KR_SERVICE_KEY\s*=?\s*/i, '')
+    .replace(/^["']|["']$/g, '')
+    .trim();
+}
+
+// .env 내용에서 인증키 줄을 바꾸거나, 없으면 맨 앞에 넣는다.
+function upsertServiceKey(envText, key) {
+  const line = `DATA_GO_KR_SERVICE_KEY=${key}`;
+  const pattern = /^DATA_GO_KR_SERVICE_KEY=.*$/m;
+  return pattern.test(envText) ? envText.replace(pattern, () => line) : `${line}\n${envText}`;
+}
+
+// 키 없이 켜면 터미널에서 물어보고 .env에 저장한다(처음 한 번만).
+async function askAndSaveServiceKey(envPath) {
+  const readline = require('node:readline/promises');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  let key;
   try {
-    process.loadEnvFile(path.join(__dirname, '.env'));
+    console.log('공공데이터포털 인증키가 아직 없습니다. (data.go.kr > 마이페이지 > 일반 인증키)');
+    key = cleanPastedKey(await rl.question('인증키를 붙여 넣고 Enter를 누르세요: '));
+  } finally {
+    rl.close();
+  }
+  if (!key) return '';
+  const current = await fs.readFile(envPath, 'utf8').catch(() => '');
+  await fs.writeFile(envPath, upsertServiceKey(current, key));
+  console.log('인증키를 .env에 저장했습니다. 다음부터는 묻지 않습니다.');
+  return key;
+}
+
+function openBrowser(url) {
+  const { spawn } = require('node:child_process');
+  const [cmd, args] =
+    process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+      : process.platform === 'darwin' ? ['open', [url]]
+        : ['xdg-open', [url]];
+  const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+  child.on('error', () => {}); // 브라우저를 못 열어도 주소는 터미널에 찍혀 있다.
+  child.unref();
+}
+
+async function main() {
+  if (typeof process.loadEnvFile !== 'function') {
+    console.error(`Node.js 20.12 이상이 필요합니다(지금 ${process.version}). https://nodejs.org 에서 LTS 버전을 설치하세요.`);
+    process.exit(1);
+  }
+  const envPath = path.join(__dirname, '.env');
+  try {
+    process.loadEnvFile(envPath);
   } catch (err) {
     if (err.code !== 'ENOENT') throw err; // .env가 없으면 이미 설정된 환경변수만 쓴다.
   }
   const config = readConfigFromEnv();
+  if (!config.serviceKey && process.stdin.isTTY) {
+    config.serviceKey = normalizeServiceKey(await askAndSaveServiceKey(envPath));
+  }
   const port = clampInt(process.env.PORT, 1, 65535, 3000);
   // 기본은 이 컴퓨터에서만 접속 가능. 다른 기기에 열면 그 사람들도 내 키의 호출 한도를 쓰게 된다.
   const host = process.env.HOST || '127.0.0.1';
+  const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`;
 
   const server = createServer(config);
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`포트 ${port}를 이미 다른 프로그램이 쓰고 있습니다. 예: PORT=3001 npm start`);
+      console.error(`포트 ${port}를 이미 다른 프로그램이 쓰고 있습니다. 서버가 이미 켜져 있다면 브라우저에서 ${url} 을 여세요.`);
       process.exit(1);
     }
     throw err;
   });
   server.listen(port, host, () => {
-    console.log(`반경 상가 지도: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
+    console.log(`반경 상가 지도: ${url}`);
+    console.log('끄려면 이 창을 닫거나 Ctrl+C를 누르세요.');
     if (!config.serviceKey) {
       console.warn('[경고] DATA_GO_KR_SERVICE_KEY가 없습니다. .env.example을 복사해 .env를 만들고 인증키를 넣으세요.');
     }
+    if (process.argv.includes('--open')) openBrowser(url);
   });
 }
 
-module.exports = { createServer, normalizeServiceKey, parseStorePage, toStore, readConfigFromEnv };
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  createServer,
+  normalizeServiceKey,
+  parseStorePage,
+  toStore,
+  readConfigFromEnv,
+  cleanPastedKey,
+  upsertServiceKey,
+};
