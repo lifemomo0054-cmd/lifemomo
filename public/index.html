@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>반경 상가 지도</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="panel">
+      <header>
+        <h1>반경 상가 지도</h1>
+        <p class="lede">주소를 검색하거나 지도를 클릭하면, 그 지점 반경 안의 가게를 불러와 업종별로 세어 줍니다.</p>
+      </header>
+
+      <p id="key-warning" class="notice notice-warn" hidden>
+        서버에 공공데이터포털 인증키가 없습니다. <code>.env</code> 파일에 <code>DATA_GO_KR_SERVICE_KEY</code>를 넣고 서버를 다시 켜 주세요.
+      </p>
+
+      <form id="search-form" class="search" role="search">
+        <label class="sr-only" for="query">주소 또는 장소</label>
+        <input id="query" type="search" placeholder="주소나 장소 (예: 서울 중구 세종대로 110)" autocomplete="off">
+        <button type="submit">검색</button>
+      </form>
+      <ul id="candidates" class="candidates" hidden></ul>
+
+      <div class="field">
+        <span class="field-label" id="radius-label">반경</span>
+        <div id="radius-options" class="segmented" role="radiogroup" aria-labelledby="radius-label">
+          <button type="button" role="radio" data-radius="100" aria-checked="false">100m</button>
+          <button type="button" role="radio" data-radius="300" aria-checked="false">300m</button>
+          <button type="button" role="radio" data-radius="500" aria-checked="true">500m</button>
+          <button type="button" role="radio" data-radius="1000" aria-checked="false">1km</button>
+          <button type="button" role="radio" data-radius="2000" aria-checked="false">2km</button>
+        </div>
+      </div>
+
+      <p id="status" class="status" role="status" aria-live="polite">지도를 클릭하거나 주소를 검색해 보세요.</p>
+
+      <section id="result" class="result" hidden aria-labelledby="total-label">
+        <div class="summary">
+          <p id="total-label" class="total"><span id="total-count">0</span>개</p>
+          <p id="summary-meta" class="meta"></p>
+        </div>
+        <p id="truncated" class="notice notice-warn" hidden></p>
+
+        <div class="levels" role="group" aria-label="업종 분류 단계">
+          <button type="button" data-level="large" aria-pressed="true">대분류</button>
+          <button type="button" data-level="medium" aria-pressed="false">중분류</button>
+          <button type="button" data-level="small" aria-pressed="false">소분류</button>
+        </div>
+        <p class="hint">업종을 누르면 지도에 그 업종만 표시합니다.</p>
+        <div id="filter-chip" class="filter-chip" hidden>
+          <span id="filter-label"></span>
+          <button type="button" id="clear-filter">전체 보기</button>
+        </div>
+        <ol id="category-list" class="category-list"></ol>
+      </section>
+    </aside>
+
+    <main class="map-wrap">
+      <div id="map" role="region" aria-label="지도"></div>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="app.js"></script>
+</body>
+</html>

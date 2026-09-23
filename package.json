@@ -1,0 +1,15 @@
+{
+  "name": "lifemomo-store-map",
+  "version": "1.0.0",
+  "private": true,
+  "description": "공공데이터포털 상가(상권)정보 API로 반경 안의 가게를 지도에 표시하고 업종별로 세어 주는 웹",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20.12"
+  }
+}
