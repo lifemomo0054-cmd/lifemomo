@@ -38,12 +38,29 @@
         </div>
       </div>
 
+      <section class="overlay-section" aria-labelledby="overlay-title">
+        <div class="overlay-top">
+          <h2 id="overlay-title">내 SHP 파일 겹쳐 보기</h2>
+          <label class="file-button">
+            SHP 파일 열기
+            <input id="overlay-input" class="sr-only" type="file" multiple accept=".zip,.shp,.shx,.dbf,.prj,.cpg">
+          </label>
+        </div>
+        <p class="hint">ZIP 파일 하나, 또는 .shp·.dbf·.prj 파일을 함께 고르세요. 지도에 끌어다 놓아도 됩니다.</p>
+        <p id="overlay-status" class="status" role="status" aria-live="polite" hidden></p>
+        <ul id="overlay-list" class="overlay-list"></ul>
+      </section>
+
       <p id="status" class="status" role="status" aria-live="polite">지도를 클릭하거나 주소를 검색해 보세요.</p>
 
       <section id="result" class="result" hidden aria-labelledby="total-label">
         <div class="summary">
           <p id="total-label" class="total"><span id="total-count">0</span>개</p>
           <p id="summary-meta" class="meta"></p>
+        </div>
+        <div class="export-row">
+          <button type="button" id="export-xlsx" class="export-button">엑셀로 저장</button>
+          <button type="button" id="export-shp" class="export-button">SHP로 저장</button>
         </div>
         <p id="truncated" class="notice notice-warn" hidden></p>
 
@@ -68,6 +85,11 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://unpkg.com/proj4@2.22.0/dist/proj4.js"
+          integrity="sha256-r332U9kepZHzPSb7lYmQu9MHGy22RKTtq6RBzJhhpHQ=" crossorigin=""></script>
+  <script src="shapefile.js"></script>
+  <script src="crs.js"></script>
+  <script src="xlsx.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -29,6 +29,7 @@ function makeItem(i, cx, cy) {
     indsLclsCd: lc, indsLclsNm: ln,
     indsMclsCd: mc, indsMclsNm: mn,
     indsSclsCd: sc, indsSclsNm: sn,
+    ctprvnNm: '서울특별시', signguNm: '강남구', adongNm: '역삼1동', ldongNm: '역삼동',
     rdnmAdr: `서울특별시 강남구 테헤란로 ${i}`,
     lnoAdr: `서울특별시 강남구 역삼동 ${i}`,
     flrNo: '1',
@@ -159,7 +160,9 @@ test('여러 페이지를 모두 불러오고, 키는 응답에 넣지 않는다
     assert.deepEqual(data.stores[0], {
       id: 'MA0000000000', name: '가게0', branch: '역삼점',
       largeCode: 'I2', large: '음식', mediumCode: 'I201', medium: '한식', smallCode: 'I20101', small: '백반/한정식',
-      address: '서울특별시 강남구 테헤란로 0', floor: '1', lat: 37.5, lng: 127.03,
+      address: '서울특별시 강남구 테헤란로 0', roadAddress: '서울특별시 강남구 테헤란로 0', jibunAddress: '서울특별시 강남구 역삼동 0',
+      building: '', sido: '서울특별시', sigungu: '강남구', adong: '역삼1동', ldong: '역삼동',
+      floor: '1', lat: 37.5, lng: 127.03,
     });
 
     const calls = upstreamRequests.filter((r) => r.path === '/storeListInRadius');

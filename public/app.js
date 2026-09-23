@@ -300,6 +300,14 @@ function renderStats() {
   $('filter-chip').hidden = !selectedRow;
   $('filter-label').textContent = selectedRow ? `‘${selectedRow.label}’ ${numberFormat.format(selectedRow.count)}개만 보는 중` : '';
 
+  $('export-xlsx').disabled = stores.length === 0;
+  $('export-xlsx').textContent = `엑셀로 저장 (${numberFormat.format(stores.length)}개)`;
+  const exportCount = numberFormat.format(visibleStores().length);
+  $('export-shp').disabled = stores.length === 0;
+  $('export-shp').textContent = selectedRow
+    ? `‘${selectedRow.label}’만 SHP로 저장 (${exportCount}개)`
+    : `SHP로 저장 (${exportCount}개)`;
+
   const list = $('category-list');
   if (!rows.length) {
     list.replaceChildren(el('li', 'empty', '이 반경 안에는 등록된 가게가 없어요.'));
@@ -381,7 +389,402 @@ function formatFloor(floor) {
   return basement ? `지하 ${basement[1]}층` : f;
 }
 
+// ── SHP로 저장 ──────────────────────────────────────────────────────────
+// SHP 속성 이름은 영문 10자까지라서 짧은 이름을 쓴다. (README에 뜻을 적어 두었다.)
+const SHP_FIELDS = [
+  { name: 'BIZES_ID', type: 'C', length: 24, from: (s) => s.id },
+  { name: 'NAME', type: 'C', length: 150, from: (s) => s.name },
+  { name: 'BRANCH', type: 'C', length: 60, from: (s) => s.branch },
+  { name: 'LCLS_CD', type: 'C', length: 10, from: (s) => s.largeCode },
+  { name: 'LCLS_NM', type: 'C', length: 60, from: (s) => s.large },
+  { name: 'MCLS_CD', type: 'C', length: 10, from: (s) => s.mediumCode },
+  { name: 'MCLS_NM', type: 'C', length: 90, from: (s) => s.medium },
+  { name: 'SCLS_CD', type: 'C', length: 10, from: (s) => s.smallCode },
+  { name: 'SCLS_NM', type: 'C', length: 120, from: (s) => s.small },
+  { name: 'SIDO', type: 'C', length: 40, from: (s) => s.sido },
+  { name: 'SIGUNGU', type: 'C', length: 40, from: (s) => s.sigungu },
+  { name: 'ADONG', type: 'C', length: 40, from: (s) => s.adong },
+  { name: 'LDONG', type: 'C', length: 40, from: (s) => s.ldong },
+  { name: 'ROAD_ADDR', type: 'C', length: 254, from: (s) => s.roadAddress },
+  { name: 'JIBUN_ADDR', type: 'C', length: 254, from: (s) => s.jibunAddress },
+  { name: 'BLDG_NM', type: 'C', length: 150, from: (s) => s.building },
+  { name: 'FLOOR', type: 'C', length: 20, from: (s) => s.floor },
+  { name: 'LON', type: 'N', length: 14, decimals: 8, from: (s) => s.lng },
+  { name: 'LAT', type: 'N', length: 13, decimals: 8, from: (s) => s.lat },
+];
+
+// 지금 지도에 진하게 보이는 가게(업종을 골랐으면 그 업종만)
+function visibleStores() {
+  if (!state.data) return [];
+  const levelKey = LEVELS[state.level].key;
+  return state.selectedKey ? state.data.stores.filter((s) => levelKey(s) === state.selectedKey) : state.data.stores;
+}
+
+async function exportShp() {
+  const stores = visibleStores();
+  if (!stores.length) return;
+  const button = $('export-shp');
+  button.disabled = true;
+  try {
+    const set = Shapefile.writePointShapefile(
+      stores.map((s) => ({
+        x: s.lng,
+        y: s.lat,
+        attributes: Object.fromEntries(SHP_FIELDS.map((f) => [f.name, f.from(s)])),
+      })),
+      SHP_FIELDS,
+    );
+    const text = new TextEncoder();
+    const zipBytes = await Shapefile.zip([
+      { name: 'stores.shp', data: set.shp },
+      { name: 'stores.shx', data: set.shx },
+      { name: 'stores.dbf', data: set.dbf },
+      { name: 'stores.prj', data: text.encode(Shapefile.WGS84_PRJ) },
+      { name: 'stores.cpg', data: text.encode('UTF-8') },
+    ]);
+    download(new Blob([zipBytes], { type: 'application/zip' }), exportFileName());
+  } catch (err) {
+    setStatus(`SHP 파일을 만들지 못했어요: ${err.message}`, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function exportFileName() {
+  const selected = state.selectedKey && state.data.stores.find((s) => LEVELS[state.level].key(s) === state.selectedKey);
+  return fileName(selected ? LEVELS[state.level].label(selected) || '미분류' : '전체', 'zip');
+}
+
+// 예: 상가_김천시 자산동_전체_반경300m_20260923.xlsx
+function fileName(what, extension) {
+  const d = new Date();
+  const day = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const parts = ['상가', placeName(), what, `반경${formatRadius(state.data.radius)}`, day].filter(Boolean);
+  return `${parts.join('_')}.${extension}`.replace(/[\\/:*?"<>|]/g, '·');
+}
+
+// 불러온 가게들이 가장 많이 속한 행정동 (예: "김천시 자산동")
+function placeName() {
+  const counts = new Map();
+  for (const s of state.data.stores) {
+    const place = [s.sigungu, s.adong].filter(Boolean).join(' ');
+    if (place) counts.set(place, (counts.get(place) || 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+}
+
+// ── 엑셀로 저장 ─────────────────────────────────────────────────────────
+// 요약(대분류별 개수) + 전체 목록 + 대분류마다 시트 하나.
+async function exportExcel() {
+  const data = state.data;
+  if (!data || !data.stores.length) return;
+  const button = $('export-xlsx');
+  button.disabled = true;
+  try {
+    const groups = new Map();
+    for (const s of data.stores) {
+      const label = s.large || '미분류';
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(s);
+    }
+    const byName = (a, b) => a.name.localeCompare(b.name, 'ko') || a.branch.localeCompare(b.branch, 'ko');
+    const sorted = [...groups]
+      .map(([label, stores]) => ({ label, stores: stores.sort(byName) }))
+      .sort((a, b) => b.stores.length - a.stores.length || a.label.localeCompare(b.label, 'ko'));
+
+    const header = ['상호명', '지점명', '중분류', '소분류', '도로명주소', '지번주소', '층'];
+    const widths = [28, 12, 16, 20, 40, 34, 8];
+    const row = (s) => [s.name, s.branch, s.medium, s.small, s.roadAddress || s.address, s.jibunAddress, formatFloor(s.floor)];
+    const total = data.stores.length;
+    const summaryRows = [
+      ['항목', '내용'],
+      ['위치', [placeName(), `위도 ${data.center.lat}, 경도 ${data.center.lng}`].filter(Boolean).join(' · ')],
+      ['반경', formatRadius(data.radius)],
+      ['데이터 기준', formatYearMonth(data.stdrYm) || '-'],
+      ['가게 수', total],
+    ];
+    if (data.truncated) summaryRows.push(['주의', `가게가 ${data.totalCount}개라 ${total}개만 불러왔습니다. 반경을 줄이면 전부 받을 수 있습니다.`]);
+    summaryRows.push([], { bold: true, cells: ['대분류', '가게 수', '비율'] });
+    for (const g of sorted) summaryRows.push([g.label, g.stores.length, { value: g.stores.length / total, style: 'percent' }]);
+
+    const bytes = await Xlsx.build([
+      { name: '요약', rows: summaryRows, widths: [14, 44, 10], header: true },
+      {
+        name: '전체',
+        rows: [['대분류', ...header], ...sorted.flatMap((g) => g.stores.map((s) => [g.label, ...row(s)]))],
+        widths: [14, ...widths],
+        header: true,
+        autoFilter: true,
+      },
+      ...sorted.map((g) => ({ name: g.label, rows: [header, ...g.stores.map(row)], widths, header: true, autoFilter: true })),
+    ]);
+    download(
+      new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      fileName('대분류별', 'xlsx'),
+    );
+  } catch (err) {
+    setStatus(`엑셀 파일을 만들지 못했어요: ${err.message}`, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function download(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = el('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+// ── 내 SHP 파일 겹쳐 보기 ───────────────────────────────────────────────
+const OVERLAY_COLOR = '#4a3aa7';
+const OVERLAY_STYLE = { color: OVERLAY_COLOR, weight: 2, opacity: 0.9, fillColor: OVERLAY_COLOR, fillOpacity: 0.08 };
+const OVERLAY_POINT_STYLE = { radius: 5, color: '#ffffff', weight: 1.5, fillColor: OVERLAY_COLOR, fillOpacity: 0.95 };
+const KOREA_BOUNDS = L.latLngBounds([32, 123], [39.8, 132.5]);
+const MAX_IMPORT_BYTES = 300 * 1024 * 1024;
+const TOOLTIP_FIELD_LIMIT = 8;
+const SHP_PART = /\.(shp|shx|dbf|prj|cpg)$/i;
+
+const overlays = [];
+let overlaySeq = 0;
+
+async function importFiles(fileList) {
+  const files = [...fileList];
+  if (!files.length) return;
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+  if (totalBytes > MAX_IMPORT_BYTES) {
+    setOverlayStatus('파일이 너무 커요(300MB 넘음). 필요한 지역만 잘라서 다시 올려 주세요.', 'error');
+    return;
+  }
+  setOverlayStatus('SHP 파일을 읽는 중…', 'loading');
+  try {
+    const entries = [];
+    for (const file of files) {
+      const data = new Uint8Array(await file.arrayBuffer());
+      if (/\.zip$/i.test(file.name)) entries.push(...(await Shapefile.unzip(data, (name) => SHP_PART.test(name))));
+      else if (SHP_PART.test(file.name)) entries.push({ name: file.name, data });
+    }
+    const sets = Shapefile.groupShapefiles(entries);
+    if (!sets.length) {
+      throw new Error('.shp 파일을 찾지 못했어요. SHP가 든 ZIP 파일이나, .shp·.dbf·.prj 파일을 함께 골라 주세요.');
+    }
+    const missingDbf = sets.filter((set) => !set.dbf).map((set) => set.name);
+    sets.forEach((set, i) => addOverlay(Shapefile.readShapefile(set), i === sets.length - 1));
+    setOverlayStatus(missingDbf.length ? `.dbf 파일이 없어서 속성은 빼고 모양만 보여 줘요: ${missingDbf.join(', ')}` : '');
+  } catch (err) {
+    setOverlayStatus(err.message, 'error');
+  }
+}
+
+function addOverlay(data, fit) {
+  const detected = Crs.detectCrs(data.prj, rawBounds(data.features));
+  const overlay = { id: ++overlaySeq, data, detected, crs: detected, layer: null };
+  overlays.push(overlay);
+  drawOverlay(overlay, fit);
+}
+
+function drawOverlay(overlay, fit) {
+  overlay.layer?.remove();
+  overlay.layer = null;
+  overlay.error = '';
+  let toLatLng;
+  try {
+    toLatLng = latLngConverter(overlay.crs.def);
+  } catch {
+    overlay.error = '이 좌표계로는 바꿀 수 없어요. 다른 좌표계를 골라 보세요.';
+    renderOverlayList();
+    return;
+  }
+
+  const group = L.featureGroup();
+  for (const feature of overlay.data.features) {
+    const layer = overlayFeatureLayer(feature.geometry, toLatLng);
+    if (!layer) continue;
+    if (Object.keys(feature.properties).length) {
+      layer.bindTooltip(() => attributeTable(feature.properties), { sticky: true, className: 'overlay-tooltip' });
+    }
+    group.addLayer(layer);
+  }
+  group.addTo(map);
+  group.bringToBack(); // 가게 점보다 아래에 그려서 점을 누를 수 있게 한다.
+  overlay.layer = group;
+
+  const bounds = group.getBounds();
+  overlay.outside = !bounds.isValid() || !KOREA_BOUNDS.intersects(bounds);
+  if (fit && bounds.isValid() && !overlay.outside) map.fitBounds(bounds, { padding: [24, 24] });
+  renderOverlayList();
+}
+
+function latLngConverter(def) {
+  const project = def === Crs.byCode('EPSG:4326').def ? (xy) => xy : proj4(def, 'EPSG:4326').forward;
+  return (xy) => {
+    const [lng, lat] = project(xy);
+    return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 ? [lat, lng] : null;
+  };
+}
+
+function overlayFeatureLayer(geometry, toLatLng) {
+  const line = (coords) => coords.map(toLatLng).filter(Boolean);
+  switch (geometry.type) {
+    case 'Point': {
+      const at = toLatLng(geometry.coordinates);
+      return at && L.circleMarker(at, OVERLAY_POINT_STYLE);
+    }
+    case 'MultiPoint': {
+      const points = line(geometry.coordinates).map((at) => L.circleMarker(at, OVERLAY_POINT_STYLE));
+      return points.length ? L.featureGroup(points) : null;
+    }
+    case 'LineString':
+    case 'MultiLineString': {
+      const parts = (geometry.type === 'LineString' ? [geometry.coordinates] : geometry.coordinates).map(line).filter((p) => p.length > 1);
+      return parts.length ? L.polyline(parts, { ...OVERLAY_STYLE, fill: false }) : null;
+    }
+    case 'Polygon': {
+      const rings = geometry.coordinates.map(line).filter((r) => r.length > 2);
+      return rings.length ? L.polygon(rings, OVERLAY_STYLE) : null;
+    }
+    default:
+      return null;
+  }
+}
+
+function rawBounds(features) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const visit = (c) => {
+    if (typeof c[0] === 'number') {
+      if (c[0] < minX) minX = c[0];
+      if (c[0] > maxX) maxX = c[0];
+      if (c[1] < minY) minY = c[1];
+      if (c[1] > maxY) maxY = c[1];
+    } else {
+      c.forEach(visit);
+    }
+  };
+  for (const f of features) visit(f.geometry.coordinates);
+  return Number.isFinite(minX) ? [minX, minY, maxX, maxY] : [0, 0, 0, 0];
+}
+
+function attributeTable(properties) {
+  const table = el('table', 'attr-table');
+  const entries = Object.entries(properties).filter(([, v]) => v !== '' && v != null);
+  for (const [key, value] of entries.slice(0, TOOLTIP_FIELD_LIMIT)) {
+    const row = el('tr');
+    row.append(el('th', null, key), el('td', null, String(value)));
+    table.append(row);
+  }
+  if (entries.length > TOOLTIP_FIELD_LIMIT) {
+    const row = el('tr');
+    const more = el('td', 'attr-more', `외 ${entries.length - TOOLTIP_FIELD_LIMIT}개 항목`);
+    more.colSpan = 2;
+    row.append(more);
+    table.append(row);
+  }
+  return table;
+}
+
+function renderOverlayList() {
+  const list = $('overlay-list');
+  list.replaceChildren(
+    ...overlays.map((overlay) => {
+      const item = el('li', 'overlay-item');
+
+      const head = el('div', 'overlay-head');
+      const name = el('strong', null, overlay.data.name);
+      name.prepend(swatch(OVERLAY_COLOR));
+      head.append(name, el('span', 'overlay-count', describeShapes(overlay.data.features)));
+
+      const crsLabel = el('label', 'overlay-crs');
+      crsLabel.append(el('span', null, '좌표계'));
+      const select = el('select');
+      const options = overlay.detected.code === 'custom' ? [overlay.detected, ...Crs.KNOWN] : Crs.KNOWN;
+      for (const crs of options) {
+        const option = el('option', null, crs.code === overlay.detected.code ? overlay.detected.label : crs.label);
+        option.value = crs.code;
+        option.selected = crs.code === overlay.crs.code;
+        select.append(option);
+      }
+      select.addEventListener('change', () => {
+        overlay.crs = select.value === overlay.detected.code ? overlay.detected : Crs.byCode(select.value);
+        drawOverlay(overlay, true);
+      });
+      crsLabel.append(select);
+      item.append(head, crsLabel);
+
+      const warning = overlay.error
+        || (overlay.crs.source === 'guess' ? '.prj 파일이 없어서 좌표 범위로 좌표계를 짐작했어요. 위치가 이상하면 좌표계를 바꿔 보세요.' : '')
+        || (overlay.outside ? '위치가 한국 밖으로 나와요. 좌표계를 바꿔 보세요.' : '');
+      if (warning) item.append(el('p', 'overlay-warn', warning));
+
+      const actions = el('div', 'overlay-actions');
+      const zoom = el('button', null, '이 위치로 이동');
+      zoom.type = 'button';
+      zoom.disabled = !overlay.layer || !overlay.layer.getBounds().isValid();
+      zoom.addEventListener('click', () => map.fitBounds(overlay.layer.getBounds(), { padding: [24, 24] }));
+      const remove = el('button', null, '지우기');
+      remove.type = 'button';
+      remove.addEventListener('click', () => {
+        overlay.layer?.remove();
+        overlays.splice(overlays.indexOf(overlay), 1);
+        renderOverlayList();
+      });
+      actions.append(zoom, remove);
+      item.append(actions);
+      return item;
+    }),
+  );
+}
+
+function describeShapes(features) {
+  const kinds = { Point: '점', MultiPoint: '점', LineString: '선', MultiLineString: '선', Polygon: '면' };
+  const counts = {};
+  for (const f of features) {
+    const kind = kinds[f.geometry.type] || '기타';
+    counts[kind] = (counts[kind] || 0) + 1;
+  }
+  const parts = Object.entries(counts).map(([kind, n]) => `${kind} ${numberFormat.format(n)}개`);
+  return parts.length ? parts.join(' · ') : '도형 없음';
+}
+
+function setOverlayStatus(message, kind = '') {
+  const status = $('overlay-status');
+  status.textContent = message;
+  status.className = `status ${kind}`;
+  status.hidden = !message;
+}
+
 // ── 이벤트 연결 ─────────────────────────────────────────────────────────
+$('export-xlsx').addEventListener('click', exportExcel);
+$('export-shp').addEventListener('click', exportShp);
+
+$('overlay-input').addEventListener('change', (e) => {
+  importFiles(e.target.files);
+  e.target.value = ''; // 같은 파일을 다시 골라도 change 가 오게
+});
+
+// 파일을 지도에 끌어다 놓기
+const mapWrap = document.querySelector('.map-wrap');
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragover', (e) => hasFiles(e) && e.preventDefault()); // 브라우저가 파일을 열어 버리지 않게
+window.addEventListener('drop', (e) => hasFiles(e) && e.preventDefault());
+mapWrap.addEventListener('dragover', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  mapWrap.classList.add('dropping');
+});
+mapWrap.addEventListener('dragleave', (e) => {
+  if (!mapWrap.contains(e.relatedTarget)) mapWrap.classList.remove('dropping');
+});
+mapWrap.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  mapWrap.classList.remove('dropping');
+  importFiles(e.dataTransfer.files);
+});
+
 $('search-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const query = $('query').value.trim();

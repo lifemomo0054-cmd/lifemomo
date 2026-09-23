@@ -185,6 +185,97 @@ code { font-size: 0.9em; background: rgba(11, 11, 11, 0.06); padding: 0 4px; bor
 .category-bar span { display: block; height: 100%; min-width: 3px; border-radius: 0 4px 4px 0; }
 .empty { padding: 12px 0; color: var(--muted); font-size: 14px; }
 
+/* ── 엑셀·SHP 저장 / 겹쳐 보기 ────────────── */
+.export-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.export-row .export-button { flex: 1 1 auto; }
+.export-button, .file-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.export-button:hover, .file-button:hover { background: rgba(11, 11, 11, 0.04); }
+.export-button:disabled { opacity: 0.5; cursor: default; }
+.file-button { flex: none; }
+.file-button:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.overlay-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.overlay-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.overlay-section h2 { margin: 0; font-size: 14px; }
+.overlay-section .hint { margin: 0; }
+.overlay-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.overlay-list:empty { display: none; }
+.overlay-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(74, 58, 167, 0.06);
+  font-size: 13px;
+}
+.overlay-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.overlay-head strong { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; overflow-wrap: anywhere; }
+.overlay-count { color: var(--muted); font-size: 12px; }
+.overlay-crs { display: flex; align-items: center; gap: 8px; }
+.overlay-crs span { flex: none; color: var(--ink-2); }
+.overlay-crs select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+}
+.overlay-warn { margin: 0; color: var(--warn-ink); font-size: 12px; }
+.overlay-actions { display: flex; gap: 6px; }
+.overlay-actions button {
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+}
+.overlay-actions button:disabled { opacity: 0.5; cursor: default; }
+
+.overlay-tooltip { white-space: normal; }
+.attr-table { width: max-content; max-width: 360px; border-collapse: collapse; font-size: 12px; }
+.attr-table th { padding: 1px 8px 1px 0; color: var(--muted); font-weight: 400; text-align: left; vertical-align: top; white-space: nowrap; }
+.attr-table td { padding: 1px 0; overflow-wrap: anywhere; }
+.attr-table .attr-more { color: var(--muted); }
+
+.map-wrap.dropping::after {
+  content: "여기에 놓으면 SHP 파일을 지도에 겹쳐 보여 줘요";
+  position: absolute;
+  inset: 12px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #4a3aa7;
+  border-radius: 12px;
+  background: rgba(252, 252, 251, 0.85);
+  color: #4a3aa7;
+  font-size: 16px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
 /* ── 지도 위 요소 ─────────────────────────── */
 /* 지도 바탕은 흐리게 해서 가게 점이 잘 보이게 한다. */
 .leaflet-tile-pane { filter: grayscale(0.85) brightness(1.04); }
