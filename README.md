@@ -14,8 +14,9 @@
 ### Windows — 명령어 없이 켜기
 
 1. [nodejs.org](https://nodejs.org)에서 **LTS** 버전을 설치합니다 (처음 한 번만).
-2. 이 프로젝트를 받아서 압축을 풉니다. GitHub 페이지의 **Code → Download ZIP**을 누르면 됩니다.
-3. 폴더 안의 **`start-windows.bat`** 을 더블클릭합니다.
+2. [프로젝트 전체 ZIP](https://github.com/lifemomo0054-cmd/lifemomo/archive/HEAD.zip)을 받아서 압축을 풉니다(오른쪽 클릭 → **모두 압축 풀기**).
+   `start-windows.bat` 파일 하나만 받으면 동작하지 않습니다. 같은 폴더에 `server.js`와 `public` 폴더가 있어야 합니다.
+3. 압축을 푼 폴더 안의 **`start-windows.bat`** 을 더블클릭합니다.
 4. 처음 한 번은 까만 창에서 인증키를 물어봅니다. 붙여 넣고(오른쪽 클릭) Enter를 누르면 `.env`에 저장되고, 브라우저가 알아서 열립니다.
 
 끌 때는 까만 창을 닫으면 됩니다. 다음부터는 3번만 하면 됩니다.
