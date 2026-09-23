@@ -182,7 +182,9 @@ async function getJson(url, signal) {
     res = await fetch(url, { signal });
   } catch (err) {
     if (err.name === 'AbortError') throw err;
-    throw new Error('로컬 서버에 연결할 수 없습니다. 서버가 켜져 있는지 확인하세요.');
+    throw new Error(
+      '지도 프로그램(까만 창)이 꺼져 있어요. 폴더의 start-windows를 더블클릭해서(또는 npm start로) 다시 켠 뒤 이 페이지를 새로고침하세요.',
+    );
   }
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.error || `서버 응답 오류 (HTTP ${res.status})`);
