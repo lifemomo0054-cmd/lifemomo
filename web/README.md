@@ -16,6 +16,10 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
+- 터미널에 `Local: http://localhost:5173/`가 나오면 브라우저에서 엽니다. 5173 포트가 이미 쓰이고 있으면 Vite가 5174 같은 다음 포트를 쓰니, **터미널에 찍힌 주소**를 여세요.
+- 화면 이동은 주소의 `#` 뒤 경로로 합니다. Overview는 `http://localhost:5173/#/` (또는 `http://localhost:5173/`), 시간 분석은 `#/time`처럼 열립니다.
+- 끌 때는 서버를 띄운 터미널에서 **Ctrl + C**를 누릅니다.
+
 | 명령 | 하는 일 |
 |---|---|
 | `npm run dev` | 개발 서버 |

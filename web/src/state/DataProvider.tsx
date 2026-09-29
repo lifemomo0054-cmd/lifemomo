@@ -8,18 +8,24 @@ const DataContext = createContext<DataState>({ status: 'loading' });
 
 const DATA_URL = `${import.meta.env.BASE_URL}data/population.json`;
 
+// 요청은 한 번만 보내고 함께 쓴다. (개발 모드 StrictMode가 effect를 두 번 실행해도 요청이 취소·중복되지 않게)
+let request: Promise<Dataset> | null = null;
+
 export function DataProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<DataState>({ status: 'loading' });
 
   useEffect(() => {
-    const ctrl = new AbortController();
-    loadDataset(DATA_URL, ctrl.signal)
-      .then((ds) => setState({ status: 'ready', ds }))
+    let alive = true;
+    request ??= loadDataset(DATA_URL);
+    request
+      .then((ds) => alive && setState({ status: 'ready', ds }))
       .catch((err: unknown) => {
-        if (ctrl.signal.aborted) return;
-        setState({ status: 'error', message: err instanceof Error ? err.message : String(err) });
+        request = null; // 다음에 다시 시도할 수 있게
+        if (alive) setState({ status: 'error', message: err instanceof Error ? err.message : String(err) });
       });
-    return () => ctrl.abort();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   return <DataContext.Provider value={state}>{children}</DataContext.Provider>;
