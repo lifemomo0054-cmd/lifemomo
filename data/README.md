@@ -32,6 +32,7 @@ pip install -r requirements.txt     # pandas, pyarrow
 
 python scripts/preprocess.py        # 원본 → processed/stay_population
 python scripts/aggregate.py         # stay_population → processed/aggregates/*
+python scripts/build_web_data.py    # stay_population → web/public/data/population.json (웹서비스용)
 python scripts/validate.py          # 원본·결과를 서로 대조 (실패 시 종료 코드 1)
 ```
 
@@ -158,6 +159,7 @@ df = df.merge(regions, left_on='origin_region_code', right_on='region_code', how
 - 행 단위 데이터가 원본과 행 수·값이 같은지, 파생 컬럼(날짜·요일·연령대·생애단계·성별 표시명·표시 컬럼)이 맞는지
 - 매핑 표의 코드가 겹치지 않고, 원본의 모든 코드가 JOIN되는지
 - 집계표 11종이 모두 있고, CSV와 Parquet이 같고, 합계·행 수가 전체와 맞고, 조합마다 원본에서 다시 센 값과 같은지
+- 웹서비스용 데이터(`web/public/data/population.json`)의 모든 행이 전처리 결과와 같은지
 
 ## 참고 자료
 

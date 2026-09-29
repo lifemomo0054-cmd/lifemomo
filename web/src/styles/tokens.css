@@ -1,0 +1,107 @@
+/*
+ * 디자인 토큰. 차트 색은 dataviz 기준 팔레트를 이 화면의 바탕색에 대해 다시 검증한 값이다.
+ *   범주형(성별)  라이트 #2a78d6 #eb6834 / 다크 #3987e5 #d95926  — CVD·대비 모두 통과
+ *   순서형(생애단계) 라이트 #86b6ef→#0d366b / 다크 #184f95→#b7d3f6 — 단일 색상, 명도 단조
+ */
+:root {
+  color-scheme: light;
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo',
+    'Noto Sans KR', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --bg: #f3f2ee;
+  --surface: #fcfcfa;
+  --surface-2: #f0efea;
+  --nodata: #eae8e2;
+  --ink: #111110;
+  --ink-2: #55544f;
+  --ink-3: #807e78;
+  --line: #e3e1da;
+  --line-2: #cfcdc5;
+  --grid: #ebe9e3;
+  --axis: #c7c5bc;
+
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --deemph: #c4c2ba;
+  --ord-1: #86b6ef;
+  --ord-2: #3987e5;
+  --ord-3: #1c5cab;
+  --ord-4: #0d366b;
+  --wash: rgba(42, 120, 214, 0.1);
+  --focus: #2a78d6;
+  --scrim: rgba(17, 17, 16, 0.32);
+  --shadow-pop: 0 18px 40px -18px rgba(17, 17, 16, 0.28), 0 0 0 1px rgba(17, 17, 16, 0.08);
+
+  --radius: 4px;
+  --sidebar-w: 248px;
+  --rail-w: 72px;
+  --topbar-h: 52px;
+  --gutter: 32px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #0e0e0d;
+    --surface: #171716;
+    --surface-2: #201f1e;
+    --nodata: #242422;
+    --ink: #f4f3ef;
+    --ink-2: #c3c2b7;
+    --ink-3: #8d8b84;
+    --line: #2a2a28;
+    --line-2: #3a3a37;
+    --grid: #232321;
+    --axis: #45443f;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --deemph: #57564f;
+    --ord-1: #184f95;
+    --ord-2: #2a78d6;
+    --ord-3: #6da7ec;
+    --ord-4: #b7d3f6;
+    --wash: rgba(57, 135, 229, 0.16);
+    --focus: #6da7ec;
+    --scrim: rgba(0, 0, 0, 0.55);
+    --shadow-pop: 0 18px 40px -18px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0e0e0d;
+  --surface: #171716;
+  --surface-2: #201f1e;
+  --nodata: #242422;
+  --ink: #f4f3ef;
+  --ink-2: #c3c2b7;
+  --ink-3: #8d8b84;
+  --line: #2a2a28;
+  --line-2: #3a3a37;
+  --grid: #232321;
+  --axis: #45443f;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --deemph: #57564f;
+  --ord-1: #184f95;
+  --ord-2: #2a78d6;
+  --ord-3: #6da7ec;
+  --ord-4: #b7d3f6;
+  --wash: rgba(57, 135, 229, 0.16);
+  --focus: #6da7ec;
+  --scrim: rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 18px 40px -18px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 1199px) {
+  :root {
+    --gutter: 24px;
+  }
+}
+
+@media (max-width: 767px) {
+  :root {
+    --gutter: 16px;
+  }
+}

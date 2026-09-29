@@ -1,0 +1,569 @@
+/* ── 패널 (그래프 한 장) ─────────────────────────────────────────────── */
+
+.panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 20px 22px 18px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.panel-heading {
+  min-width: 0;
+}
+
+.panel-fig {
+  margin-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.panel-title {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+}
+
+.panel-sub {
+  margin-top: 4px;
+  max-width: 72ch;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.panel-body {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-foot {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.panel-empty {
+  display: grid;
+  place-items: center;
+  min-height: 140px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.view-toggle {
+  flex: none;
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.view-toggle button {
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.view-toggle button[aria-pressed='true'] {
+  background: var(--surface-2);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ── 범례 · 툴팁 ────────────────────────────────────────────────────── */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.key {
+  display: inline-block;
+  flex: none;
+}
+
+.key-line {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.key-rect {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.key-band {
+  width: 14px;
+  height: 10px;
+  border-radius: 1px;
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+.tooltip {
+  position: absolute;
+  z-index: 10;
+  min-width: 140px;
+  padding: 8px 11px 9px;
+  background: var(--surface);
+  border-radius: 5px;
+  box-shadow: var(--shadow-pop);
+  font-size: 12px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.tooltip-title {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+.tooltip-row strong {
+  color: var(--ink);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.tooltip-note {
+  margin-top: 2px;
+  color: var(--ink-2);
+}
+
+/* ── SVG 공통 ───────────────────────────────────────────────────────── */
+
+.chart {
+  position: relative;
+  width: 100%;
+}
+
+.chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.chart svg:focus-visible {
+  outline-offset: 4px;
+}
+
+.grid-line {
+  stroke: var(--grid);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.axis-line {
+  stroke: var(--axis);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.tick {
+  fill: var(--ink-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tick-strong {
+  fill: var(--ink-2);
+  font-size: 12px;
+}
+
+.value-label {
+  fill: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.end-label {
+  fill: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.nodata-band {
+  fill: var(--nodata);
+}
+
+.nodata-label {
+  fill: var(--ink-3);
+  font-size: 11px;
+}
+
+.mark-accent {
+  fill: var(--series-1);
+}
+
+.mark-muted {
+  fill: var(--deemph);
+}
+
+.mark-accent.is-active,
+.mark-muted.is-active {
+  opacity: 0.78;
+}
+
+.mark-line {
+  fill: none;
+  stroke: var(--series-1);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.mark-dot {
+  fill: var(--series-1);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.crosshair {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.hit-area {
+  fill: transparent;
+}
+
+.column {
+  outline: none;
+}
+
+.column:focus-visible .hit-area {
+  stroke: var(--focus);
+  stroke-width: 2;
+}
+
+/* ── 가로 막대 목록 ──────────────────────────────────────────────────── */
+
+.barlist-wrap {
+  position: relative;
+}
+
+.barlist-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(96px, 34%) minmax(40px, 1fr) 74px 50px;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 6px;
+  border-radius: var(--radius);
+  outline: none;
+}
+
+.barlist-row:not(:has(.barlist-rank)) {
+  grid-template-columns: minmax(96px, 34%) minmax(40px, 1fr) 74px 50px;
+}
+
+.barlist-row[data-active='true'] {
+  background: var(--surface-2);
+}
+
+.barlist-row:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+
+.barlist-rank {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.barlist-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13.5px;
+}
+
+.barlist-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barlist-sub {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.barlist-label .tag {
+  align-self: center;
+}
+
+.barlist-track {
+  position: relative;
+  height: 10px;
+}
+
+.barlist-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--series-1);
+  border-radius: 0 4px 4px 0;
+}
+
+.barlist-bar.is-muted {
+  background: var(--deemph);
+}
+
+.barlist-value,
+.barlist-share {
+  text-align: right;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.barlist-value {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.barlist-share {
+  color: var(--ink-3);
+}
+
+.barlist-tooltip {
+  right: 130px;
+  bottom: calc(100% - 2px);
+}
+
+.sublist {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* ── 누적 막대 ───────────────────────────────────────────────────────── */
+
+.stack-pair {
+  display: grid;
+  gap: 22px;
+}
+
+.stacked-title {
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.stacked-bar {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+}
+
+.stacked-seg {
+  min-width: 2px;
+  transition: opacity 120ms ease;
+}
+
+.stacked-seg:first-child {
+  border-radius: 3px 0 0 3px;
+}
+
+.stacked-seg:last-child {
+  border-radius: 0 3px 3px 0;
+}
+
+.stacked-seg:only-child {
+  border-radius: 3px;
+}
+
+.stacked-seg[data-dim='true'] {
+  opacity: 0.35;
+}
+
+.stacked-empty {
+  flex: 1;
+  background: var(--nodata);
+  border-radius: 3px;
+}
+
+.stacked-legend {
+  margin-top: 10px;
+  display: grid;
+}
+
+.stacked-legend li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto 52px;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  padding: 0 6px;
+  margin: 0 -6px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  outline: none;
+}
+
+.stacked-legend li[data-active='true'] {
+  background: var(--surface-2);
+}
+
+.stacked-legend li:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+
+.stacked-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stacked-note {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.stacked-value {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.stacked-share {
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 표 보기 ─────────────────────────────────────────────────────────── */
+
+.table-wrap {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 7px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.data-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.data-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* ── 작은 추이 선 ────────────────────────────────────────────────────── */
+
+.sparkline {
+  width: 100%;
+}
+
+.sparkline svg {
+  display: block;
+  overflow: visible;
+}
+
+.spark-line {
+  fill: none;
+  stroke: var(--series-1);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 767px) {
+  .panel {
+    padding: 16px 14px 14px;
+  }
+
+  .panel-head {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .barlist-row {
+    grid-template-columns: 20px minmax(80px, 1fr) minmax(40px, 30%) 64px;
+  }
+
+  .barlist-row:not(:has(.barlist-rank)) {
+    grid-template-columns: minmax(80px, 1fr) minmax(40px, 30%) 64px;
+  }
+
+  .barlist-share {
+    display: none;
+  }
+
+  .barlist-tooltip {
+    right: 8px;
+  }
+}

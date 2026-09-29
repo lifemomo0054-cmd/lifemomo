@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import sys
 
 import numpy as np
@@ -22,6 +23,7 @@ from common import (
     PROCESSED_STEM,
     RAW_COLUMNS,
     RAW_CSV,
+    ROOT,
     parquet_available,
     read_json,
     read_region_codes,
@@ -55,6 +57,7 @@ AGGREGATE_KEYS = {
     'date_gender': ['date', 'gender_code'],
 }
 SUM_TOL = 0.01
+WEB_DATA = ROOT / 'web' / 'public' / 'data' / 'population.json'
 
 
 # ── 원본에서 독립적으로 다시 계산하는 규칙 ─────────────────────────────────────────
@@ -335,6 +338,45 @@ def check_aggregates(r: Report, raw: pd.DataFrame, df: pd.DataFrame, regions: pd
             r.check(len(top) >= 1 and top.iloc[0] == table['population_sum'].max(), 'origin_region: 순위 1위가 최대 합계다')
 
 
+def check_web_data(r: Report, df: pd.DataFrame, regions: pd.DataFrame) -> None:
+    r.section('웹 서비스용 데이터 (web/public/data/population.json)')
+    if not WEB_DATA.exists():
+        r.note('파일이 없습니다. python scripts/build_web_data.py 로 만듭니다.')
+        return
+    with open(WEB_DATA, encoding='utf-8') as f:
+        web = json.load(f)
+    r.check(web['source']['sha256'] == sha256(RAW_CSV), '지금 원본에서 만든 데이터다 (SHA-256)')
+    cols = web['rows']
+    lengths = {k: len(v) for k, v in cols.items() if k != 'n'}
+    r.check(set(lengths.values()) == {cols['n']} and cols['n'] == len(df),
+            f'행 수가 전처리 결과와 같다 ({len(df):,}행)', str(lengths))
+    r.check([x['code'] for x in web['regions']] == sorted(regions['region_code']),
+            '거주지 목록이 매핑 표(region_codes.csv)와 같다')
+    try:
+        rebuilt = pd.DataFrame({
+            'date': [web['dates'][i] for i in cols['date']],
+            'origin_region_code': [web['regions'][i]['code'] for i in cols['region']],
+            'gender_code': [web['genders'][i]['code'] for i in cols['gender']],
+            'age_group_original': [web['ages'][i]['code'] for i in cols['age']],
+            'pop100': cols['pop100'],
+        })
+    except (IndexError, KeyError) as e:
+        r.check(False, '번호가 모두 목록 안을 가리킨다', repr(e))
+        return
+    expected = pd.DataFrame({
+        'date': df['date'].dt.strftime('%Y-%m-%d'),
+        'origin_region_code': df['origin_region_code'],
+        'gender_code': df['gender_code'],
+        'age_group_original': df['age_group_original'],
+        'pop100': (df['population'] * 100).round().astype('int64'),
+    })
+    keys = list(expected.columns)
+    same = rebuilt.sort_values(keys).reset_index(drop=True).equals(
+        expected.sort_values(keys).reset_index(drop=True).astype(rebuilt.dtypes.to_dict()))
+    r.check(same, '모든 행(날짜·거주지·성별·연령대·체류인구수)이 전처리 결과와 같다')
+    r.check(abs(sum(cols['pop100']) / 100 - float(df['population'].sum())) < SUM_TOL, '체류인구수 합계가 같다')
+
+
 def notes(r: Report, raw: pd.DataFrame, df: pd.DataFrame) -> None:
     r.section('참고: 데이터 특성 (ANALYSIS.md와 같은 내용, 실패 아님)')
     calendar = pd.date_range(df['date'].min(), df['date'].max()).strftime('%Y-%m-%d')
@@ -359,6 +401,7 @@ def main() -> int:
         if df is not None:
             regions = check_regions(r, df)
             check_aggregates(r, raw, df, regions)
+            check_web_data(r, df, regions)
             notes(r, raw, df)
     print(f'\n결과: 통과 {r.passed}개, 실패 {r.failed}개')
     return 1 if r.failed or raw is None else 0

@@ -154,3 +154,4 @@ SHP 규칙상 항목 이름은 영문 10자까지라 아래처럼 줄여서 넣�
 
 - 데이터 분석: [ANALYSIS.md](ANALYSIS.md)
 - 전처리·집계·검증 방법과 컬럼 설명: [data/README.md](data/README.md)
+- 분석 웹서비스 **LOCAL POPULATION LAB** (React + TypeScript): [web/README.md](web/README.md) — `cd web && npm install && npm run dev`
