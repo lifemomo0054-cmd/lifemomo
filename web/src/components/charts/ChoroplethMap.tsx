@@ -51,7 +51,7 @@ export function ChoroplethMap({
   highlight,
   onHover,
   label,
-  height = 640,
+  height: fullHeight = 640,
 }: {
   areas: MapArea[];
   borders?: GeoPermissibleObjects; // 시도 경계 (굵은 선)
@@ -65,6 +65,8 @@ export function ChoroplethMap({
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<{ key: string; x: number; y: number } | null>(null);
+  // 좁은 화면에서는 너비에 맞춰 높이를 줄여야 확대한 범위가 화면을 채운다
+  const height = width > 0 && width < 640 ? Math.min(fullHeight, Math.max(320, Math.round(width * 1.2))) : fullHeight;
 
   const geo = useMemo(() => {
     if (width < 80) return null;
