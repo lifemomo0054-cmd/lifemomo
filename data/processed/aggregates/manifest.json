@@ -1,0 +1,99 @@
+{
+  "notice": "합성데이터입니다. 공식통계가 아니며 김천시의 실제 체류인구·생활인구를 나타내지 않습니다. 정책 판단·보도·대외 자료의 근거로 쓰지 마세요.",
+  "source": {
+    "file": "data/raw/경상북도 김천시_3시간이상체류_생활인구 합성데이터.csv",
+    "sha256": "81f50c6323d2223319b051ef26e47f53feca6233e85aa3489f8193da09514416",
+    "bytes": 3083265,
+    "rows": 80193
+  },
+  "tables": {
+    "daily": {
+      "description": "날짜별 (달력상 모든 날짜, 데이터 없는 날은 has_data = False)",
+      "rows": 181,
+      "files": [
+        "data/processed/aggregates/daily.csv",
+        "data/processed/aggregates/daily.parquet"
+      ]
+    },
+    "monthly": {
+      "description": "월별 (데이터 없는 달 포함, daily_mean = 합계 ÷ 데이터 있는 날 수)",
+      "rows": 6,
+      "files": [
+        "data/processed/aggregates/monthly.csv",
+        "data/processed/aggregates/monthly.parquet"
+      ]
+    },
+    "weekday": {
+      "description": "요일별 (daily_mean = 합계 ÷ 그 요일의 데이터 있는 날 수)",
+      "rows": 7,
+      "files": [
+        "data/processed/aggregates/weekday.csv",
+        "data/processed/aggregates/weekday.parquet"
+      ]
+    },
+    "gender": {
+      "description": "성별",
+      "rows": 2,
+      "files": [
+        "data/processed/aggregates/gender.csv",
+        "data/processed/aggregates/gender.parquet"
+      ]
+    },
+    "age": {
+      "description": "원본 연령대(16구간)별",
+      "rows": 16,
+      "files": [
+        "data/processed/aggregates/age.csv",
+        "data/processed/aggregates/age.parquet"
+      ]
+    },
+    "life_stage": {
+      "description": "생애단계(아동청소년·청년·중장년·고령)별",
+      "rows": 4,
+      "files": [
+        "data/processed/aggregates/life_stage.csv",
+        "data/processed/aggregates/life_stage.parquet"
+      ]
+    },
+    "origin_region": {
+      "description": "거주지 시군구 코드별",
+      "rows": 256,
+      "files": [
+        "data/processed/aggregates/origin_region.csv",
+        "data/processed/aggregates/origin_region.parquet"
+      ]
+    },
+    "origin_region_age": {
+      "description": "거주지 × 원본 연령대 (share_within_group = 거주지 안에서의 비중)",
+      "rows": 4081,
+      "files": [
+        "data/processed/aggregates/origin_region_age.csv",
+        "data/processed/aggregates/origin_region_age.parquet"
+      ]
+    },
+    "origin_region_gender": {
+      "description": "거주지 × 성별 (share_within_group = 거주지 안에서의 비중)",
+      "rows": 512,
+      "files": [
+        "data/processed/aggregates/origin_region_gender.csv",
+        "data/processed/aggregates/origin_region_gender.parquet"
+      ]
+    },
+    "date_age": {
+      "description": "날짜 × 원본 연령대 (데이터 있는 날만, share_within_group = 그날 안에서의 비중)",
+      "rows": 2399,
+      "files": [
+        "data/processed/aggregates/date_age.csv",
+        "data/processed/aggregates/date_age.parquet"
+      ]
+    },
+    "date_gender": {
+      "description": "날짜 × 성별 (데이터 있는 날만, share_within_group = 그날 안에서의 비중)",
+      "rows": 300,
+      "files": [
+        "data/processed/aggregates/date_gender.csv",
+        "data/processed/aggregates/date_gender.parquet"
+      ]
+    }
+  }
+}

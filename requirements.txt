@@ -1,0 +1,3 @@
+# 데이터 전처리 스크립트(scripts/*.py)용
+pandas>=2.2
+pyarrow>=15  # Parquet 파일 생성용. 없으면 CSV만 만든다

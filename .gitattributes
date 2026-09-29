@@ -1,1 +1,3 @@
 *.bat -text
+# 원본 데이터는 줄바꿈(CRLF)까지 받은 그대로 보관한다
+data/raw/** -text

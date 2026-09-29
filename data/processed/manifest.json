@@ -1,0 +1,79 @@
+{
+  "notice": "합성데이터입니다. 공식통계가 아니며 김천시의 실제 체류인구·생활인구를 나타내지 않습니다. 정책 판단·보도·대외 자료의 근거로 쓰지 마세요.",
+  "source": {
+    "file": "data/raw/경상북도 김천시_3시간이상체류_생활인구 합성데이터.csv",
+    "sha256": "81f50c6323d2223319b051ef26e47f53feca6233e85aa3489f8193da09514416",
+    "bytes": 3083265,
+    "rows": 80193
+  },
+  "output": {
+    "files": [
+      "data/processed/stay_population.csv",
+      "data/processed/stay_population.parquet"
+    ],
+    "rows": 80193,
+    "columns": [
+      "source_row",
+      "date",
+      "year",
+      "month",
+      "day",
+      "weekday",
+      "weekday_name",
+      "is_weekend",
+      "stay_region_code",
+      "origin_region_code",
+      "is_same_region",
+      "gender_code",
+      "gender_label",
+      "age_group_original",
+      "age_group_10yr",
+      "life_stage",
+      "population",
+      "is_zero",
+      "is_capped"
+    ]
+  },
+  "summary": {
+    "date_min": "2026-01-01",
+    "date_max": "2026-06-30",
+    "dates_with_data": 150,
+    "dates_without_data": [
+      "2026-05-01",
+      "2026-05-02",
+      "2026-05-03",
+      "2026-05-04",
+      "2026-05-05",
+      "2026-05-06",
+      "2026-05-07",
+      "2026-05-08",
+      "2026-05-09",
+      "2026-05-10",
+      "2026-05-11",
+      "2026-05-12",
+      "2026-05-13",
+      "2026-05-14",
+      "2026-05-15",
+      "2026-05-16",
+      "2026-05-17",
+      "2026-05-18",
+      "2026-05-19",
+      "2026-05-20",
+      "2026-05-21",
+      "2026-05-22",
+      "2026-05-23",
+      "2026-05-24",
+      "2026-05-25",
+      "2026-05-26",
+      "2026-05-27",
+      "2026-05-28",
+      "2026-05-29",
+      "2026-05-30",
+      "2026-05-31"
+    ],
+    "population_sum": 1690156.93,
+    "zero_rows": 61478,
+    "capped_rows": 36,
+    "same_region_rows": 196
+  }
+}
