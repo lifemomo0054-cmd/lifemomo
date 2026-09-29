@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { decodeDataset } from './dataset';
 import {
+  age10Series,
   dailySeries,
   genderShares,
   kpis,
@@ -89,9 +90,31 @@ describe('전체 (필터 없음)', () => {
     }
   });
 
+  it('10세 단위 연령대 = age.csv 를 age_group_10yr 로 묶은 합계, 성별 교차합도 맞다', () => {
+    const expected = new Map<string, number>();
+    for (const row of table('age')) expected.set(row.age_group_10yr, (expected.get(row.age_group_10yr) ?? 0) + Number(row.population_sum));
+    const series = age10Series(ds, s);
+    expect(series.map((a) => a.key)).toEqual([...expected.keys()]);
+    for (const a of series) {
+      close(a.value, expected.get(a.key)!);
+      close(a.byGender.reduce((n, g) => n + g.value, 0), a.value);
+    }
+    const g = new Map(table('gender').map((r) => [r.gender_code, Number(r.population_sum)]));
+    ds.genders.forEach((gd) => close(series.reduce((n, a) => n + a.byGender.find((x) => x.key === gd.code)!.value, 0), g.get(gd.code)!));
+    expect(series.map((a) => a.label)).toEqual(['0~9세', '10대', '20대', '30대', '40대', '50대', '60대', '70대', '80세 이상']);
+  });
+
+  it('날짜별 원본 행 수 = daily.csv row_count, 0이 아닌 최솟값', () => {
+    const rows = new Map(table('daily').filter((r) => r.has_data === 'True').map((r) => [r.date, Number(r.row_count)]));
+    ds.dates.forEach((d, i) => expect(ds.rowsPerDate[i]).toBe(rows.get(d)));
+    expect(ds.minPositive100).toBe(300);
+    expect(ds.stayName).toBe('김천시');
+  });
+
   it('KPI', () => {
     const k = kpis(ds, s);
     expect(k.topOrigin?.code).toBe('47190');
+    expect(k.topAge10?.label).toBe('50대');
     expect(k.selfShare!).toBeCloseTo(189_251.9 / 1_690_156.93, 9);
     expect(k.dailyMean!).toBeCloseTo(1_690_156.93 / 150, 6);
   });
@@ -102,6 +125,13 @@ describe('필터 조합', () => {
     const s = summarize(ds, with_({ gender: 'female' }));
     const expected = new Map(table('date_gender').filter((r) => r.gender_code === 'female').map((r) => [r.date, Number(r.population_sum)]));
     ds.dates.forEach((d, i) => close(s.byDate[i], expected.get(d) ?? 0));
+  });
+
+  it('성별 = 여성 → 연령대 × 성별의 여성 칸이 연령대 합계와 같다', () => {
+    const female = summarize(ds, with_({ gender: 'female' }));
+    const both = summarize(ds, all);
+    const fi = ds.genders.findIndex((g) => g.code === 'female');
+    ds.ages.forEach((_, a) => close(female.byAge[a], both.byAgeGender[a * ds.genders.length + fi]));
   });
 
   it('거주지 = 구미시 → 연령대별 합계가 origin_region_age.csv 와 같다', () => {

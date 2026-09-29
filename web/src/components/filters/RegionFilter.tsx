@@ -13,7 +13,7 @@ export function RegionFilter() {
   const { filters, update } = useFilters();
   const [query, setQuery] = useState('');
 
-  // 빠른 선택용: 전체 기간·전체 조건 기준 상위 거주지 (김천시 자체 제외)
+  // 빠른 선택용: 전체 기간·전체 조건 기준 상위 거주지 (체류지 자체 제외)
   const topRegions = useMemo(
     () => rankRegions(ds, summarize(ds, defaultFilters(ds))).filter((r) => !r.isStay).slice(0, 6),
     [ds],
@@ -51,7 +51,7 @@ export function RegionFilter() {
               <input
                 type="search"
                 value={query}
-                placeholder="시군구 검색 (예: 구미, 수성구, 41590)"
+                placeholder={`시군구 검색 (예: ${topRegions.slice(0, 2).map((r) => r.name).join(', ')})`}
                 aria-label="거주 시군구 검색"
                 onChange={(e) => setQuery(e.target.value)}
               />
@@ -73,22 +73,22 @@ export function RegionFilter() {
             ) : (
               <div className="option-scroll">
                 <div className="option-list" role="radiogroup" aria-label="빠른 선택">
-                  <OptionRow selected={is({ kind: 'all' })} label="전체 거주지" hint="256개 시군구" onSelect={() => pick({ kind: 'all' })} />
+                  <OptionRow selected={is({ kind: 'all' })} label="전체 거주지" hint={`${ds.regions.length}개 시군구`} onSelect={() => pick({ kind: 'all' })} />
                   <OptionRow
                     selected={is({ kind: 'external' })}
                     label="외부 유입만"
-                    hint="김천시 거주자 제외"
+                    hint={`${ds.stayName} 거주자 제외`}
                     onSelect={() => pick({ kind: 'external' })}
                   />
                   <OptionRow
                     selected={is({ kind: 'region', code: ds.stayRegion.code })}
-                    label="김천시 자체"
+                    label={`${ds.stayName} 자체`}
                     hint="거주지 = 체류지"
                     onSelect={() => pick({ kind: 'region', code: ds.stayRegion.code })}
                   />
                 </div>
 
-                <p className="popover-section">김천 기준 권역</p>
+                <p className="popover-section">{ds.stayName} 기준 권역</p>
                 <div className="chips chips-pad">
                   {ds.zones
                     .filter((z) => z !== ds.regions[ds.stayRegionIndex].zone)

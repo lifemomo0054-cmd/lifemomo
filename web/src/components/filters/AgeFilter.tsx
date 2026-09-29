@@ -1,10 +1,11 @@
 import { ageLabel, describeAges } from '../../data/filters';
+import type { AgeInfo } from '../../data/types';
 import { useDataset } from '../../state/DataProvider';
 import { useFilters } from '../../state/FilterProvider';
 import { Icon } from '../ui/Icon';
 import { FilterPopover, OptionRow } from './Popover';
 
-/** 원본 16개 연령대를 생애단계로 묶어 고른다. 아무것도 안 고르면 전체 연령. */
+/** 원본 연령대를 생애단계로 묶어 고른다. 아무것도 안 고르면 전체 연령. */
 export function AgeFilter() {
   const ds = useDataset();
   const { filters, update } = useFilters();
@@ -39,7 +40,7 @@ export function AgeFilter() {
       {(close) => (
         <>
           <div className="option-list" role="radiogroup" aria-label="전체 연령">
-            <OptionRow selected={isAll} label="전체 연령" hint="16개 연령대" onSelect={() => update({ ages: [] })} />
+            <OptionRow selected={isAll} label="전체 연령" hint={`${ds.ages.length}개 연령대`} onSelect={() => update({ ages: [] })} />
           </div>
           <div className="age-groups">
             {ds.lifeStages.map((stage) => {
@@ -79,7 +80,7 @@ export function AgeFilter() {
             })}
           </div>
           <div className="popover-foot popover-actions">
-            <p className="popover-foot-note">00~09세는 10년, 나머지는 5년 구간입니다.</p>
+            <p className="popover-foot-note">{bandNote(ds.ages)}</p>
             <button type="button" className="button button-primary" onClick={close}>
               완료
             </button>
@@ -88,4 +89,21 @@ export function AgeFilter() {
       )}
     </FilterPopover>
   );
+}
+
+/** 구간 폭 안내 (예: 0~9세는 10년, 나머지는 5년 구간 · 80세 이상은 상한 없음) */
+function bandNote(ages: AgeInfo[]): string {
+  const widths = new Map<number, string[]>();
+  ages.forEach((a) => a.band !== null && widths.set(a.band, [...(widths.get(a.band) ?? []), a.code]));
+  const common = [...widths].sort((a, b) => b[1].length - a[1].length)[0]?.[0];
+  const parts = [...widths]
+    .filter(([w]) => w !== common)
+    .map(([w, codes]) => `${codes.map(ageLabel).join(', ')}는 ${w}년`);
+  const open = ages.filter((a) => a.band === null).map((a) => ageLabel(a.code));
+  return [
+    [...parts, common !== undefined ? `나머지는 ${common}년 구간입니다.` : ''].filter(Boolean).join(', '),
+    open.length ? `${open.join(', ')}은 상한이 없습니다.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }

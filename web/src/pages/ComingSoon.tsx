@@ -1,5 +1,5 @@
 import { describeAges, describePeriod, describeRegion } from '../data/filters';
-import { fmtCompact, fmtInt } from '../data/format';
+import { fmtInt } from '../data/format';
 import type { NavItem } from '../nav';
 import { useDataset } from '../state/DataProvider';
 import { useFilters } from '../state/FilterProvider';
@@ -67,8 +67,8 @@ export function ComingSoon({ item }: { item: NavItem }) {
               <dd className="mono">{fmtInt(summary.rowCount)}</dd>
             </div>
             <div>
-              <dt>누적 체류인구</dt>
-              <dd className="mono">{fmtCompact(summary.total)}</dd>
+              <dt>총 생활인구</dt>
+              <dd className="mono">{fmtInt(summary.total)}명</dd>
             </div>
           </dl>
         </section>

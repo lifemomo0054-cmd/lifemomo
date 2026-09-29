@@ -36,18 +36,30 @@ export function decodeDataset(raw: RawDataset): Dataset {
   const stayRegionIndex = regionIndex.get(raw.stayRegion.code);
   if (stayRegionIndex === undefined) throw new Error('데이터 형식 오류: 체류지 코드가 지역 목록에 없습니다.');
 
+  const rowsPerDate = new Int32Array(raw.dates.length);
+  let minPositive100 = Infinity;
+  for (let i = 0; i < rows.n; i++) {
+    rowsPerDate[rows.date[i]]++;
+    const p = rows.pop100[i];
+    if (p > 0 && p < minPositive100) minPositive100 = p;
+  }
+
   return {
     notice: raw.notice,
+    measure: raw.measure,
     source: raw.source,
     stayRegion: raw.stayRegion,
     stayRegionIndex,
+    stayName: raw.regions[stayRegionIndex].name,
     cap100: Math.round(raw.capValue * 100),
+    minPositive100: Number.isFinite(minPositive100) ? minPositive100 : 0,
     calendar,
     calendarHasData,
     dates: raw.dates,
     dateCalendarIndex,
     dateWeekday: Uint8Array.from(raw.dates, weekdayOf),
     dateMonth: Uint8Array.from(raw.dates, (d) => monthIndex.get(d.slice(0, 7))!),
+    rowsPerDate,
     months,
     genders: raw.genders,
     ages: raw.ages,

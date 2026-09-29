@@ -35,6 +35,7 @@ from common import (
 )
 
 WEB_DATA = ROOT / 'web' / 'public' / 'data' / 'population.json'
+MEASURE = '3시간 이상 체류 생활인구'  # 원본 파일명의 "3시간이상체류_생활인구"
 ZONE_ORDER = ['김천시(자체)', '김천 인접 시군', '대구', '경북 기타', '수도권', '기타 지역']
 
 
@@ -74,6 +75,7 @@ def build() -> dict:
     return {
         'version': 1,
         'notice': NOTICE,
+        'measure': MEASURE,
         'source': {'file': manifest['source']['file'], 'sha256': manifest['source']['sha256']},
         'stayRegion': {'code': stay[0], 'name': stay_name},
         'calendar': {'start': date_text.min(), 'end': date_text.max()},

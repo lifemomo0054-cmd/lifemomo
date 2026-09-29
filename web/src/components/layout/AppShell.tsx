@@ -5,6 +5,9 @@ import { FilterBar } from '../filters/FilterBar';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 
+/** 모든 화면 맨 위에 항상 보이는 안내 문구 */
+export const SYNTHETIC_NOTICE = '본 서비스의 현재 데이터는 합성데이터를 기반으로 합니다.';
+
 export function AppShell() {
   const [navOpen, setNavOpen] = useState(false);
   const { pathname } = useLocation();
@@ -29,6 +32,10 @@ export function AppShell() {
       </a>
       <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
       <div className="shell-main">
+        <p className="notice-strip" role="note">
+          <span className="notice-tag">Notice</span>
+          {SYNTHETIC_NOTICE}
+        </p>
         <div className="shell-head">
           <TopBar navOpen={navOpen} onMenu={() => setNavOpen(true)} />
           <FilterBar />

@@ -2,11 +2,13 @@ import { scaleBand, scaleLinear } from 'd3-scale';
 import { useState } from 'react';
 import { Tooltip, type TooltipRow } from './Tooltip';
 import { columnPath } from './TrendChart';
+import { textWidth } from './textWidth';
 import { useWidth } from './useWidth';
 
 export interface Column {
   key: string;
   label: string;
+  shortLabel?: string; // 자리가 좁을 때 x축에 쓰는 짧은 이름
   value: number | null; // null = 데이터 없음 (0과 구분)
   emphasis?: boolean;
   tooltip: TooltipRow[];
@@ -14,16 +16,18 @@ export interface Column {
   emptyNote?: string;
 }
 
-const M = { top: 24, right: 8, bottom: 30, left: 8 };
+const M = { top: 24, right: 8, bottom: 30 };
+const TICK_GUTTER = 58; // 세로축 눈금을 그릴 때 왼쪽 여백
 
 /**
- * 세로 막대. 막대가 적어서 값을 막대 끝에 모두 적고, 세로축 눈금은 생략한다.
+ * 세로 막대. 자리가 넉넉하면 값을 막대 끝에 적고 세로축 눈금을 생략한다.
+ * 좁으면 막대 끝 값 대신 세로축 눈금을 그리고, 값은 툴팁·표 보기로 읽는다.
  * emphasis 가 하나라도 있으면 그 막대만 강조색, 나머지는 회색(강조 형식).
  */
 export function ColumnChart({
   columns,
   format,
-  height = 220,
+  height: fullHeight = 240,
   label,
 }: {
   columns: Column[];
@@ -34,23 +38,40 @@ export function ColumnChart({
   const [ref, width] = useWidth<HTMLDivElement>();
   const [active, setActive] = useState<number | null>(null);
   const emphasis = columns.some((c) => c.emphasis);
+  const height = width > 0 && width < 400 ? Math.min(fullHeight, 260) : fullHeight; // 좁은 화면(모바일)에서는 낮게
 
-  if (width < M.left + M.right + 40) return <div className="chart" ref={ref} style={{ height }} />;
+  if (width < TICK_GUTTER + M.right + 40) return <div className="chart" ref={ref} style={{ height }} />;
 
-  const x = scaleBand<string>()
-    .domain(columns.map((c) => c.key))
-    .range([M.left, width - M.right])
-    .paddingInner(0.2)
-    .paddingOuter(0.1);
+  const band = (left: number) =>
+    scaleBand<string>()
+      .domain(columns.map((c) => c.key))
+      .range([left, width - M.right])
+      .paddingInner(0.2)
+      .paddingOuter(0.1);
+  const widest = Math.max(0, ...columns.map((c) => (c.value === null ? 0 : textWidth(format(c.value), 11.5))));
+  const labelsFit = band(8).step() >= widest + 6;
+  const left = labelsFit ? 8 : TICK_GUTTER;
+  const x = band(left);
+  const useShort = columns.some((c) => textWidth(c.label, 12) > x.step() - 4);
+
   const max = Math.max(1, ...columns.map((c) => c.value ?? 0));
-  const y = scaleLinear().domain([0, max]).range([height - M.bottom, M.top + 4]);
+  const y = scaleLinear().domain([0, max]).nice(labelsFit ? 1 : 4).range([height - M.bottom, M.top + 4]);
   const barW = Math.min(24, x.bandwidth());
   const a = active !== null ? columns[active] : null;
 
   return (
     <div className="chart" ref={ref} style={{ height }}>
       <svg width={width} height={height} role="img" aria-label={label}>
-        <line className="axis-line" x1={M.left} x2={width - M.right} y1={y(0)} y2={y(0)} />
+        {!labelsFit &&
+          y.ticks(4).map((t) => (
+            <g key={t}>
+              {t > 0 && <line className="grid-line" x1={left} x2={width - M.right} y1={y(t)} y2={y(t)} />}
+              <text className="tick" x={left - 8} y={y(t)} dy="0.32em" textAnchor="end">
+                {format(t)}
+              </text>
+            </g>
+          ))}
+        <line className="axis-line" x1={left} x2={width - M.right} y1={y(0)} y2={y(0)} />
         {columns.map((c, i) => {
           const cx = x(c.key)! + x.bandwidth() / 2;
           const cls = !emphasis || c.emphasis ? 'mark-accent' : 'mark-muted';
@@ -66,16 +87,18 @@ export function ColumnChart({
               onFocus={() => setActive(i)}
               onBlur={() => setActive(null)}
             >
-              <rect className="hit-area" x={x(c.key)!} y={M.top} width={x.bandwidth()} height={height - M.top} />
+              <rect className="hit-area" x={x(c.key)! - (x.step() - x.bandwidth()) / 2} y={M.top} width={x.step()} height={height - M.top} />
               {c.value !== null ? (
                 <>
                   <path
                     className={`${cls}${active === i ? ' is-active' : ''}`}
                     d={columnPath(cx - barW / 2, y(c.value), barW, y(0) - y(c.value))}
                   />
-                  <text className="value-label" x={cx} y={y(c.value) - 6} textAnchor="middle">
-                    {format(c.value)}
-                  </text>
+                  {labelsFit && (
+                    <text className="value-label" x={cx} y={y(c.value) - 6} textAnchor="middle">
+                      {format(c.value)}
+                    </text>
+                  )}
                 </>
               ) : (
                 <text className="nodata-label" x={cx} y={y(0) - 8} textAnchor="middle">
@@ -83,7 +106,7 @@ export function ColumnChart({
                 </text>
               )}
               <text className="tick tick-strong" x={cx} y={height - M.bottom + 18} textAnchor="middle">
-                {c.label}
+                {useShort ? c.shortLabel ?? c.label : c.label}
               </text>
             </g>
           );

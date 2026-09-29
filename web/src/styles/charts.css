@@ -482,6 +482,56 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 조각마다 툴팁을 띄우는 누적 막대 */
+.segbar {
+  position: relative;
+  min-width: 0;
+}
+
+/* 성별 구성: 전체 + 연령대별 */
+.gender-comp {
+  display: grid;
+  gap: 18px;
+}
+
+.split {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.split-rows {
+  display: grid;
+  gap: 2px;
+}
+
+.split-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 56px;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  font-size: 12.5px;
+}
+
+.split-label {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.split-ratio {
+  text-align: right;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.split-note {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
 /* ── 표 보기 ─────────────────────────────────────────────────────────── */
 
 .table-wrap {

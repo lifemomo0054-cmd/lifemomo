@@ -86,6 +86,13 @@ export function ageLabel(code: string): string {
   return `${lo}~${hi}세`;
 }
 
+/** 10세 단위 연령대 표시: 00-09 → 0~9세, 30-39 → 30대, 80+ → 80세 이상 */
+export function age10Label(code: string): string {
+  if (code.endsWith('+')) return `${Number(code.slice(0, -1))}세 이상`;
+  const lo = Number(code.split('-')[0]);
+  return lo === 0 ? ageLabel(code) : `${lo}대`;
+}
+
 export function describeAges(ds: Dataset, ages: string[]): string {
   if (ages.length === 0 || ages.length === ds.ages.length) return '전체 연령';
   const chosen = new Set(ages);
@@ -112,7 +119,7 @@ export function describeRegion(ds: Dataset, scope: RegionScope): string {
     case 'all':
       return '전체 거주지';
     case 'external':
-      return '외부 유입 (김천시 제외)';
+      return `외부 유입 (${ds.stayName} 제외)`;
     case 'zone':
       return scope.zone;
     case 'sido':

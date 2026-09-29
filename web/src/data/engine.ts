@@ -2,7 +2,7 @@
 // 체류인구수는 ×100 정수로 더한 뒤 마지막에 100으로 나눈다(소수 오차 없음).
 
 import { dayRange, WEEKDAY_LABELS, weekdayOf } from './dates';
-import { regionMask, type Filters } from './filters';
+import { age10Label, regionMask, type Filters } from './filters';
 import type { Dataset } from './types';
 
 export interface Summary {
@@ -19,6 +19,7 @@ export interface Summary {
   byDate: Float64Array; // 데이터 날짜별 합계
   byGender: Float64Array;
   byAge: Float64Array;
+  byAgeGender: Float64Array; // [연령대 × 성별 수 + 성별]
   byLifeStage: Float64Array;
   byRegion: Float64Array;
   rowsByRegion: Int32Array;
@@ -36,6 +37,8 @@ export function summarize(ds: Dataset, filters: Filters): Summary {
   const byDate = new Float64Array(ds.dates.length);
   const byGender = new Float64Array(ds.genders.length);
   const byAge = new Float64Array(ds.ages.length);
+  const nGender = ds.genders.length;
+  const byAgeGender = new Float64Array(ds.ages.length * nGender);
   const byRegion = new Float64Array(ds.regions.length);
   const rowsByRegion = new Int32Array(ds.regions.length);
   let rowCount = 0;
@@ -62,6 +65,7 @@ export function summarize(ds: Dataset, filters: Filters): Summary {
     byDate[d] += p;
     byGender[g] += p;
     byAge[a] += p;
+    byAgeGender[a * nGender + g] += p;
     byRegion[r] += p;
     rowsByRegion[r]++;
   }
@@ -86,6 +90,7 @@ export function summarize(ds: Dataset, filters: Filters): Summary {
     byDate: toPeople(byDate),
     byGender: toPeople(byGender),
     byAge: toPeople(byAge),
+    byAgeGender: toPeople(byAgeGender),
     byLifeStage: toPeople(byLifeStage),
     byRegion: toPeople(byRegion),
     rowsByRegion,
@@ -208,6 +213,35 @@ export function lifeStageShares(ds: Dataset, s: Summary): SharePoint[] {
   return shares(ds.lifeStages.map((l, i) => ({ key: l.name, label: l.name, note: l.range, value: s.byLifeStage[i] })), s.total);
 }
 
+export interface Age10Point extends SharePoint {
+  ages: string[]; // 묶인 원본 연령대
+  byGender: SharePoint[]; // 이 연령대 안의 성별 구성 (share = 연령대 안에서의 비중)
+}
+
+/** 원본 연령대를 10세 단위로 묶는다 (00-09 / 10-14+15-19 / … / 80+). */
+export function age10Series(ds: Dataset, s: Summary): Age10Point[] {
+  const groups = new Map<string, number[]>();
+  ds.ages.forEach((a, i) => groups.set(a.age10, [...(groups.get(a.age10) ?? []), i]));
+  const nGender = ds.genders.length;
+  return [...groups].map(([code, idx]) => {
+    const value = idx.reduce((n, i) => n + s.byAge[i], 0);
+    const genderValues = ds.genders.map((_, g) => idx.reduce((n, i) => n + s.byAgeGender[i * nGender + g], 0));
+    return {
+      key: code,
+      label: age10Label(code),
+      value,
+      share: s.total > 0 ? value / s.total : null,
+      ages: idx.map((i) => ds.ages[i].code),
+      byGender: ds.genders.map((gd, g) => ({
+        key: gd.code,
+        label: gd.label,
+        value: genderValues[g],
+        share: value > 0 ? genderValues[g] / value : null,
+      })),
+    };
+  });
+}
+
 export function zoneShares(ds: Dataset, s: Summary): SharePoint[] {
   return shares(ds.zones.map((z, i) => ({ key: z, label: z, value: s.byZone[i] })), s.total);
 }
@@ -258,6 +292,7 @@ export interface Kpis {
   weekendRatio: number | null;
   femaleShare: number | null;
   topLifeStage: SharePoint | null;
+  topAge10: Age10Point | null;
   zeroRatio: number | null;
   cappedShare: number | null;
 }
@@ -275,6 +310,8 @@ export function kpis(ds: Dataset, s: Summary): Kpis {
   const stages = lifeStageShares(ds, s);
   const topLifeStage = hasTotal ? stages.reduce((a, b) => (b.value > a.value ? b : a)) : null;
   const femaleIndex = ds.genders.findIndex((g) => g.code === 'female');
+  const age10 = age10Series(ds, s);
+  const topAge10 = hasTotal ? age10.reduce((a, b) => (b.value > a.value ? b : a)) : null;
 
   return {
     total: s.total,
@@ -287,6 +324,7 @@ export function kpis(ds: Dataset, s: Summary): Kpis {
     weekendRatio: weekendMean !== null && weekdayMean ? weekendMean / weekdayMean : null,
     femaleShare: hasTotal ? s.byGender[femaleIndex] / s.total : null,
     topLifeStage,
+    topAge10,
     zeroRatio: s.rowCount > 0 ? 1 - s.nonzeroRows / s.rowCount : null,
     cappedShare: hasTotal ? s.capped / s.total : null,
   };

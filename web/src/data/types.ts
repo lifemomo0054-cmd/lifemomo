@@ -24,6 +24,7 @@ export interface AgeInfo {
 export interface RawDataset {
   version: number;
   notice: string;
+  measure: string; // 측정 항목 이름 (예: 3시간 이상 체류 생활인구)
   source: { file: string; sha256: string };
   stayRegion: { code: string; name: string };
   calendar: { start: string; end: string };
@@ -56,16 +57,20 @@ export interface MonthInfo {
 
 export interface Dataset {
   notice: string;
+  measure: string;
   source: RawDataset['source'];
   stayRegion: RawDataset['stayRegion'];
   stayRegionIndex: number;
+  stayName: string; // 체류지 시군구 이름 (예: 김천시)
   cap100: number;
+  minPositive100: number; // 0이 아닌 체류인구수의 최솟값 (×100)
   calendar: string[]; // 달력상 모든 날짜
   calendarHasData: Uint8Array;
   dates: string[]; // 데이터가 있는 날짜
   dateCalendarIndex: Int32Array; // 데이터 날짜 → calendar 위치
   dateWeekday: Uint8Array; // 0 = 월요일
   dateMonth: Uint8Array; // months 위치
+  rowsPerDate: Int32Array; // 날짜별 원본 행 수
   months: MonthInfo[];
   genders: RawDataset['genders'];
   ages: AgeInfo[];

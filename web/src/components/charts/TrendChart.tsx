@@ -3,11 +3,11 @@ import { curveMonotoneX, line } from 'd3-shape';
 import { useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { shortDay } from '../../data/dates';
 import type { DailyPoint } from '../../data/engine';
-import { fmtCompact, fmtInt } from '../../data/format';
+import { fmtInt } from '../../data/format';
 import { Tooltip } from './Tooltip';
 import { useWidth } from './useWidth';
 
-const M = { top: 20, right: 64, bottom: 30, left: 44 };
+const M = { top: 20, right: 64, bottom: 30, left: 60 };
 
 /** 위쪽만 둥근 막대 (바닥은 각지게) */
 export function columnPath(x: number, y: number, w: number, h: number, r = 4): string {
@@ -103,7 +103,7 @@ export function TrendChart({ points, height = 280, label }: Props) {
             <g key={t}>
               <line className={t === 0 ? 'axis-line' : 'grid-line'} x1={M.left} x2={width - M.right + 8} y1={geo.y(t)} y2={geo.y(t)} />
               <text className="tick" x={M.left - 8} y={geo.y(t)} dy="0.32em" textAnchor="end">
-                {fmtCompact(t)}
+                {fmtInt(t)}
               </text>
             </g>
           ))}
@@ -145,7 +145,7 @@ export function TrendChart({ points, height = 280, label }: Props) {
             <g>
               <circle className="mark-dot" cx={geo.x(geo.lastIdx)} cy={geo.y(points[geo.lastIdx].ma7!)} r={4} />
               <text className="end-label" x={geo.x(geo.lastIdx) + 8} y={geo.y(points[geo.lastIdx].ma7!)} dy="0.32em">
-                {fmtCompact(points[geo.lastIdx].ma7)}
+                {fmtInt(points[geo.lastIdx].ma7)}
               </text>
             </g>
           )}

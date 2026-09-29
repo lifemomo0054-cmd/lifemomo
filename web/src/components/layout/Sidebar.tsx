@@ -56,7 +56,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         <div className="sidebar-foot">
           <p className="eyebrow">Dataset</p>
           <p className="dataset-name">{ds.stayRegion.name}</p>
-          <p className="dataset-desc">3시간 이상 체류 생활인구</p>
+          <p className="dataset-desc">{ds.measure}</p>
           <p className="dataset-range">
             {dotDay(ds.calendar[0])} – {dotDay(ds.calendar[ds.calendar.length - 1]).slice(5)}
           </p>

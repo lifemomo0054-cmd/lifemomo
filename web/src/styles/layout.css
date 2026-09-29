@@ -41,6 +41,32 @@
   font-size: 12px;
 }
 
+/* 맨 위 안내 띠: 합성데이터 표시 */
+.notice-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  padding: 8px var(--gutter);
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.notice-tag {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
 /* ── 사이드바 ───────────────────────────────────────────────────────── */
 
 .sidebar {

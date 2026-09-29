@@ -1,10 +1,11 @@
 import { scaleLinear } from 'd3-scale';
 import { line } from 'd3-shape';
 import type { ReactNode } from 'react';
+import { DASH } from '../../data/format';
 import { useWidth } from '../charts/useWidth';
 
-/** 대표 숫자 한 개 (화면당 하나) */
-export function HeroMetric({
+/** KPI 한 칸: 이름 · 값 · 설명 (+ 선택: 작은 추이 선) */
+export function StatTile({
   label,
   value,
   unit,
@@ -20,32 +21,19 @@ export function HeroMetric({
   trendLabel?: string;
 }) {
   return (
-    <div className="hero">
-      <p className="hero-label">{label}</p>
-      <p className="hero-value">
-        {value}
-        {unit && <span className="hero-unit">{unit}</span>}
-      </p>
-      {sub && <p className="hero-sub">{sub}</p>}
-      {trend && trend.some((v) => v !== null) && (
-        <figure className="hero-trend">
-          <Sparkline values={trend} label={trendLabel ?? ''} />
-          {trendLabel && <figcaption>{trendLabel}</figcaption>}
-        </figure>
-      )}
-    </div>
-  );
-}
-
-export function StatTile({ label, value, unit, sub }: { label: string; value: string; unit?: string; sub?: ReactNode }) {
-  return (
     <div className="stat">
       <p className="stat-label">{label}</p>
       <p className="stat-value">
         {value}
-        {unit && <span className="stat-unit">{unit}</span>}
+        {unit && value !== DASH && <span className="stat-unit">{unit}</span>}
       </p>
       {sub && <p className="stat-sub">{sub}</p>}
+      {trend && trend.some((v) => v !== null) && (
+        <figure className="stat-trend">
+          <Sparkline values={trend} label={trendLabel ?? ''} height={32} />
+          {trendLabel && <figcaption>{trendLabel}</figcaption>}
+        </figure>
+      )}
     </div>
   );
 }
