@@ -58,9 +58,8 @@ export const NAV: NavItem[] = [
     en: 'Map',
     group: 'SPACE',
     summary: '거주지 시군구를 지도 위에 올려 유입 규모를 공간으로 봅니다.',
-    planned: ['거주지 시군구 단계구분도', '김천 기준 유입 흐름', '권역 경계 표시'],
-    ready: false,
-    needs: '시군구 경계(SHP/GeoJSON) 데이터',
+    planned: [],
+    ready: true,
   },
   {
     path: '/compare',

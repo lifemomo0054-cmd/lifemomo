@@ -4,6 +4,7 @@ import { BrandMark } from './components/ui/Icon';
 import { NAV } from './nav';
 import { ComingSoon } from './pages/ComingSoon';
 import { Demographics } from './pages/Demographics';
+import { MapPage } from './pages/MapPage';
 import { Origins } from './pages/Origins';
 import { Overview } from './pages/Overview';
 import { Time } from './pages/Time';
@@ -38,6 +39,7 @@ function Gate() {
             <Route path="time" element={<Time />} />
             <Route path="demographics" element={<Demographics />} />
             <Route path="origins" element={<Origins />} />
+            <Route path="map" element={<MapPage />} />
             {NAV.filter((n) => !n.ready).map((n) => (
               <Route key={n.path} path={n.path.slice(1)} element={<ComingSoon item={n} />} />
             ))}

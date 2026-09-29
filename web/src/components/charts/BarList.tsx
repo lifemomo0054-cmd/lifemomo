@@ -22,14 +22,20 @@ export function BarList({
   selectedKey,
   onSelect,
   max: fixedMax,
+  onActive,
 }: {
   items: BarItem[];
   label: string;
   max?: number; // 막대 100% 기준 (없으면 가장 큰 값)
+  onActive?: (key: string | null) => void; // 가리키는 줄이 바뀔 때 (다른 그래프와 연동)
   selectedKey?: string | null;
   onSelect?: (key: string) => void; // 있으면 줄을 눌러 고를 수 있다
 }) {
-  const [active, setActive] = useState<number | null>(null);
+  const [active, setActiveIndex] = useState<number | null>(null);
+  const setActive = (i: number | null) => {
+    setActiveIndex(i);
+    onActive?.(i === null ? null : items[i]?.key ?? null);
+  };
   const max = fixedMax ?? Math.max(1, ...items.map((i) => i.value));
 
   return (
