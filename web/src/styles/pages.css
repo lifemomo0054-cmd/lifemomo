@@ -519,3 +519,133 @@
   letter-spacing: 0.02em;
   text-transform: none;
 }
+
+/* ── AI Insight ─────────────────────────────────────────────────────── */
+
+.status-pill[data-kind='rule'] span {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+.finding-group + .finding-group {
+  margin-top: 18px;
+}
+
+.findings {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.finding {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 20px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.finding-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14.5px;
+  font-weight: 650;
+}
+
+.finding-icon {
+  color: var(--ink-2);
+}
+
+.finding-text {
+  margin-top: 4px;
+  max-width: 70ch;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+.finding-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line-2);
+}
+
+.finding-link:hover {
+  border-bottom-color: var(--ink);
+}
+
+.finding-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  text-align: right;
+}
+
+.finding-metric span {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.finding-metric strong {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.ask {
+  gap: 12px;
+}
+
+.ask-box textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 13px;
+  resize: none;
+}
+
+.context {
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.context-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.context-body {
+  margin: 8px 0 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: keep-all;
+}
+
+@media (max-width: 767px) {
+  .finding {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .finding-metric {
+    align-items: flex-start;
+    text-align: left;
+  }
+}

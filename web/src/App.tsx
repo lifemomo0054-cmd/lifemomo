@@ -5,6 +5,7 @@ import { NAV } from './nav';
 import { ComingSoon } from './pages/ComingSoon';
 import { Demographics } from './pages/Demographics';
 import { Explorer } from './pages/Explorer';
+import { Insight } from './pages/Insight';
 import { MapPage } from './pages/MapPage';
 import { Origins } from './pages/Origins';
 import { Overview } from './pages/Overview';
@@ -42,6 +43,7 @@ function Gate() {
             <Route path="origins" element={<Origins />} />
             <Route path="map" element={<MapPage />} />
             <Route path="explore" element={<Explorer />} />
+            <Route path="insight" element={<Insight />} />
             {NAV.filter((n) => !n.ready).map((n) => (
               <Route key={n.path} path={n.path.slice(1)} element={<ComingSoon item={n} />} />
             ))}

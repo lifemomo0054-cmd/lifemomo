@@ -29,3 +29,14 @@ export function fmtDecimal(v: number | null | undefined, digits = 2): string {
     ? DASH
     : v.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
+
+/** 받침에 맞는 조사: josa('50대', '이', '가') → '50대가', josa('80세 이상', '이', '가') → '80세 이상이' */
+export function josa(word: string, withFinal: string, withoutFinal: string): string {
+  const last = [...word.replace(/[\s)\]』」.,]+$/, '')].pop() ?? '';
+  const code = last.charCodeAt(0);
+  let hasFinal: boolean;
+  if (code >= 0xac00 && code <= 0xd7a3) hasFinal = (code - 0xac00) % 28 !== 0;
+  else if (/[0-9]/.test(last)) hasFinal = '013678'.includes(last); // 영·일·삼·육·칠·팔
+  else hasFinal = false;
+  return word + (hasFinal ? withFinal : withoutFinal);
+}

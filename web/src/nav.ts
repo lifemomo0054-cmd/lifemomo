@@ -7,6 +7,7 @@ export interface NavItem {
   summary: string;
   planned: string[];
   ready: boolean;
+  tag?: string; // 메뉴 옆 작은 표시
   needs?: string; // 준비에 필요한 것
 }
 
@@ -87,10 +88,10 @@ export const NAV: NavItem[] = [
     label: 'AI Insight',
     en: 'AI Insight',
     group: 'LAB',
-    summary: '필터 결과를 문장으로 요약하고 질문에 답하는 기능을 붙일 자리입니다.',
-    planned: ['현재 필터 결과 요약 문장', '두드러진 변화·이상값 설명', '데이터에 대한 질문하기'],
-    ready: false,
-    needs: 'AI 기능 연결 (아직 연결하지 않음)',
+    summary: '현재 조건에서 눈에 띄는 점을 규칙 기반으로 요약합니다. AI는 아직 연결하지 않았습니다.',
+    planned: [],
+    ready: true,
+    tag: 'AI off',
   },
 ];
 

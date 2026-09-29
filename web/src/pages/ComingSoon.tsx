@@ -8,7 +8,6 @@ import { useFilters } from '../state/FilterProvider';
 export function ComingSoon({ item }: { item: NavItem }) {
   const ds = useDataset();
   const { filters, summary } = useFilters();
-  const isAi = item.path === '/insight';
   const gender = filters.gender === 'all' ? '전체 성별' : ds.genders.find((g) => g.code === filters.gender)?.label;
 
   return (
@@ -25,11 +24,11 @@ export function ComingSoon({ item }: { item: NavItem }) {
 
       <div className="grid">
         <section className="panel span-7 soon-card">
-          <p className="status-pill" data-kind={isAi ? 'off' : 'soon'}>
+          <p className="status-pill" data-kind="soon">
             <span aria-hidden="true" />
-            {isAi ? 'AI 기능 연결 안 됨' : '준비 중'}
+            준비 중
           </p>
-          <h2 className="soon-title">{isAi ? '아직 AI 기능을 연결하지 않았습니다.' : '이 화면은 다음 단계에서 만듭니다.'}</h2>
+          <h2 className="soon-title">이 화면은 다음 단계에서 만듭니다.</h2>
           <p className="soon-desc">들어갈 내용</p>
           <ol className="soon-list">
             {item.planned.map((p, i) => (

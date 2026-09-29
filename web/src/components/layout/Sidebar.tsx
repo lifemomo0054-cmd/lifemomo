@@ -44,7 +44,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     >
                       <span className="nav-no">{item.no}</span>
                       <span className="nav-label">{item.label}</span>
-                      {!item.ready && <span className="nav-tag">{item.path === '/insight' ? 'off' : 'soon'}</span>}
+                      {(item.tag || !item.ready) && <span className="nav-tag">{item.tag ?? 'soon'}</span>}
                     </NavLink>
                   </li>
                 ))}
