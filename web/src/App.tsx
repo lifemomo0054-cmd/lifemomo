@@ -3,6 +3,7 @@ import { AppShell } from './components/layout/AppShell';
 import { BrandMark } from './components/ui/Icon';
 import { NAV } from './nav';
 import { ComingSoon } from './pages/ComingSoon';
+import { Demographics } from './pages/Demographics';
 import { Overview } from './pages/Overview';
 import { Time } from './pages/Time';
 import { DataProvider, useDataState } from './state/DataProvider';
@@ -34,6 +35,7 @@ function Gate() {
           <Route element={<AppShell />}>
             <Route index element={<Overview />} />
             <Route path="time" element={<Time />} />
+            <Route path="demographics" element={<Demographics />} />
             {NAV.filter((n) => !n.ready).map((n) => (
               <Route key={n.path} path={n.path.slice(1)} element={<ComingSoon item={n} />} />
             ))}

@@ -490,6 +490,10 @@
 }
 
 /* 성별 구성: 전체 + 연령대별 */
+.panel-body > .stacked + .split {
+  margin-top: 18px;
+}
+
 .gender-comp {
   display: grid;
   gap: 18px;

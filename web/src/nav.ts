@@ -38,8 +38,8 @@ export const NAV: NavItem[] = [
     en: 'Demographics',
     group: 'ANALYSIS',
     summary: '누가 머무는지 — 성별과 연령대 구조를 봅니다.',
-    planned: ['성·연령 인구 피라미드', '생애단계별 비중과 추이', '연령대별 성비', '5세·10세 단위 전환'],
-    ready: false,
+    planned: [],
+    ready: true,
   },
   {
     path: '/origins',
