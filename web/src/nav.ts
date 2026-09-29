@@ -74,12 +74,12 @@ export const NAV: NavItem[] = [
   {
     path: '/explore',
     no: '07',
-    label: '데이터 탐색',
+    label: '데이터 탐색기',
     en: 'Explorer',
     group: 'LAB',
     summary: '필터가 적용된 행 단위 데이터를 표로 살펴보고 내려받습니다.',
-    planned: ['행 단위 표 (정렬·검색)', 'CSV 내려받기', '데이터 품질 표시 (0 · 상한값 · 김천 자체)'],
-    ready: false,
+    planned: [],
+    ready: true,
   },
   {
     path: '/insight',
