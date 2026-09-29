@@ -1,4 +1,5 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { MANUAL_COPY_LIMIT, copyText } from '../clipboard';
 import { Icon } from '../components/ui/Icon';
 import { StatTile } from '../components/ui/Metrics';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -25,6 +26,70 @@ function download(name: string, csv: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// 웹페이지(Artifact)로 올린 판은 파일 내려받기가 막혀 있어, 같은 CSV를 클립보드에 복사하는 것으로 대신한다
+const COPY_ONLY = import.meta.env.VITE_ARTIFACT === '1';
+
+function CsvButton({ name, rows, disabled, build }: { name: string; rows?: number; disabled: boolean; build: () => string }) {
+  const [copied, setCopied] = useState(false);
+  const [manual, setManual] = useState<string | null>(null); // 자동 복사가 막혔을 때 직접 복사할 글
+  const dialog = useRef<HTMLDialogElement>(null);
+  const area = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1800);
+    return () => clearTimeout(t);
+  }, [copied]);
+
+  useEffect(() => {
+    if (manual === null) return;
+    dialog.current?.showModal();
+    area.current?.select();
+  }, [manual]);
+
+  const onClick = () => {
+    const csv = build();
+    if (!COPY_ONLY) {
+      download(name, csv);
+      return;
+    }
+    void copyText(csv).then((ok) => (ok ? setCopied(true) : setManual(csv)));
+  };
+
+  const count = rows === undefined ? '' : ` (${fmtInt(rows)}행)`;
+  return (
+    <>
+      <button type="button" className="button" disabled={disabled} onClick={onClick}>
+        <Icon name={copied ? 'check' : COPY_ONLY ? 'copy' : 'download'} />
+        {copied ? '복사했습니다' : `CSV${COPY_ONLY ? ' 복사' : ''}${count}`}
+      </button>
+      <span className="sr-only" aria-live="polite">
+        {copied ? 'CSV를 클립보드에 복사했습니다' : ''}
+      </span>
+      {manual !== null && (
+        <dialog ref={dialog} className="copy-dialog" aria-label="CSV 직접 복사" onClose={() => setManual(null)}>
+          {manual.length <= MANUAL_COPY_LIMIT ? (
+            <>
+              <p className="copy-dialog-text">이 화면에서는 자동 복사가 막혀 있습니다. 아래 내용이 모두 선택되어 있으니 Ctrl+C(⌘+C)로 복사하세요.</p>
+              <textarea ref={area} className="copy-dialog-area" readOnly value={manual} rows={12} aria-label="CSV 내용" />
+            </>
+          ) : (
+            <p className="copy-dialog-text">
+              이 화면에서는 자동 복사가 막혀 있고, 내용이 커서{rows === undefined ? '' : `(${fmtInt(rows)}행)`} 직접 복사할 수 있게 펼쳐 보이기도 어렵습니다. 기간·성별·거주지역
+              필터로 행을 줄이거나 검색으로 좁힌 뒤 다시 눌러 주세요.
+            </p>
+          )}
+          <div className="copy-dialog-foot">
+            <button type="button" className="button" onClick={() => dialog.current?.close()}>
+              닫기
+            </button>
+          </div>
+        </dialog>
+      )}
+    </>
+  );
 }
 
 function sortRows(ds: Dataset, idx: Int32Array, key: RowSort, dir: Dir): Int32Array {
@@ -200,23 +265,16 @@ export function Explorer() {
                   ))}
                 </select>
               </label>
-              <button
-                type="button"
-                className="button"
+              <CsvButton
+                name={`LPL_${ds.stayRegion.code}_pivot_${dims.join('-')}_synthetic-data.csv`}
                 disabled={grouped.length === 0}
-                onClick={() =>
-                  download(
-                    `LPL_${ds.stayRegion.code}_pivot_${dims.join('-')}_synthetic-data.csv`,
-                    toCsv(
-                      [...dims.map(dimLabel), '행 수', '0이 아닌 행 수', '생활인구 합계', '비중'],
-                      grouped.map((g) => [...g.labels, g.rows, g.nonzero, Number(g.sum.toFixed(2)), g.share === null ? '' : Number(g.share.toFixed(6))]),
-                    ),
+                build={() =>
+                  toCsv(
+                    [...dims.map(dimLabel), '행 수', '0이 아닌 행 수', '생활인구 합계', '비중'],
+                    grouped.map((g) => [...g.labels, g.rows, g.nonzero, Number(g.sum.toFixed(2)), g.share === null ? '' : Number(g.share.toFixed(6))]),
                   )
                 }
-              >
-                <Icon name="download" />
-                CSV
-              </button>
+              />
             </div>
           </header>
           {grouped.length === 0 ? (
@@ -317,15 +375,12 @@ export function Explorer() {
                 />
                 0인 행 숨기기
               </label>
-              <button
-                type="button"
-                className="button"
+              <CsvButton
+                name={`LPL_${ds.stayRegion.code}_rows_${visible.length}_synthetic-data.csv`}
+                rows={visible.length}
                 disabled={visible.length === 0}
-                onClick={() => download(`LPL_${ds.stayRegion.code}_rows_${visible.length}_synthetic-data.csv`, rowsCsv(ds, visible))}
-              >
-                <Icon name="download" />
-                CSV ({fmtInt(visible.length)}행)
-              </button>
+                build={() => rowsCsv(ds, visible)}
+              />
             </div>
           </header>
           {visible.length === 0 ? (

@@ -532,7 +532,7 @@
     left: var(--gutter);
     right: var(--gutter);
     top: auto;
-    bottom: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     width: auto;
     max-width: none;
     max-height: 72vh;

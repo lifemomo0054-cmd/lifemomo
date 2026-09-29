@@ -12,6 +12,7 @@ const PATHS = {
   info: 'M8 14.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM8 7.2V11M8 5v.01',
   filter: 'M2.5 3.5h11M4.5 8h7M6.5 12.5h3',
   download: 'M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10',
+  copy: 'M5.5 5V3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5h-2M3 5.5h7a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V6a.5.5 0 0 1 .5-.5z',
 } as const;
 
 export type IconName = keyof typeof PATHS;

@@ -16,9 +16,15 @@ function storedTheme(): Theme | null {
   }
 }
 
-/** 저장된 선택이 없으면 OS 설정을 따른다. */
+/** 페이지를 감싼 화면(웹페이지 뷰어 등)이 이미 정해 둔 테마 */
+function hostTheme(): Theme | null {
+  const t = typeof document !== 'undefined' ? document.documentElement.dataset.theme : undefined;
+  return t === 'light' || t === 'dark' ? t : null;
+}
+
+/** 저장된 선택이 없으면 이미 정해진 테마, 그것도 없으면 OS 설정을 따른다. */
 export function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(() => storedTheme() ?? systemTheme());
+  const [theme, setTheme] = useState<Theme>(() => storedTheme() ?? hostTheme() ?? systemTheme());
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

@@ -1,4 +1,4 @@
-import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { HashRouter, MemoryRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/layout/AppShell';
 import { BrandMark } from './components/ui/Icon';
 import { NAV } from './nav';
@@ -12,6 +12,9 @@ import { Overview } from './pages/Overview';
 import { Time } from './pages/Time';
 import { DataProvider, useDataState } from './state/DataProvider';
 import { FilterProvider } from './state/FilterProvider';
+
+// 웹페이지(Artifact)로 올린 판은 주소의 `#/time` 같은 경로가 페이지까지 오지 않아 화면 이동을 앱 안에서만 한다.
+const Router = import.meta.env.VITE_ARTIFACT === '1' ? MemoryRouter : HashRouter;
 
 export function App() {
   return (
@@ -34,7 +37,7 @@ function Gate() {
   }
   return (
     <FilterProvider>
-      <HashRouter>
+      <Router>
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<Overview />} />
@@ -50,7 +53,7 @@ function Gate() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
-      </HashRouter>
+      </Router>
     </FilterProvider>
   );
 }

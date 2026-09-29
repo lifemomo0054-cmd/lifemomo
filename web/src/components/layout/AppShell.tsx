@@ -27,7 +27,15 @@ export function AppShell() {
 
   return (
     <div className="shell">
-      <a className="skip-link" href="#main">
+      <a
+        className="skip-link"
+        href="#main"
+        onClick={(e) => {
+          // 주소의 # 을 바꾸면 화면 이동으로 읽히므로 본문에 초점만 옮긴다
+          e.preventDefault();
+          document.getElementById('main')?.focus();
+        }}
+      >
         본문으로 건너뛰기
       </a>
       <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
@@ -40,7 +48,7 @@ export function AppShell() {
           <TopBar navOpen={navOpen} onMenu={() => setNavOpen(true)} />
           <FilterBar />
         </div>
-        <main id="main" className="page" data-stale={stale} aria-busy={stale}>
+        <main id="main" className="page" tabIndex={-1} data-stale={stale} aria-busy={stale}>
           <Outlet />
         </main>
         <footer className="shell-foot">

@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { copyText } from '../clipboard';
 import { Icon } from '../components/ui/Icon';
 import { PageHeader } from '../components/ui/PageHeader';
 import { aiContext, findings, type FindingKind } from '../data/insights';
@@ -14,15 +15,22 @@ export function Insight() {
   const list = useMemo(() => findings(ds, s), [ds, s]);
   const context = useMemo(() => aiContext(ds, s, list), [ds, s, list]);
   const [copied, setCopied] = useState(false);
+  const body = useRef<HTMLPreElement>(null);
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(context);
+    if (await copyText(context)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
-    } catch {
-      setCopied(false);
+      return;
     }
+    // 복사가 막힌 화면에서는 요약을 모두 선택해 두어 직접 복사할 수 있게 한다
+    const el = body.current;
+    if (!el) return;
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
   };
 
   return (
@@ -114,7 +122,7 @@ export function Insight() {
                 {copied ? '복사했습니다' : '복사'}
               </button>
             </div>
-            <pre className="context-body" tabIndex={0} aria-label="AI에 보낼 요약">
+            <pre ref={body} className="context-body" tabIndex={0} aria-label="AI에 보낼 요약">
               {context}
             </pre>
             <p className="panel-foot">원본 행은 보내지 않고, 현재 조건과 위 요약만 보낼 예정입니다. 요약 첫 줄에 합성데이터임을 밝힙니다.</p>

@@ -649,3 +649,43 @@
     text-align: left;
   }
 }
+
+/* ── 직접 복사 창 (웹페이지 판에서 자동 복사가 막혔을 때) ─────────────── */
+
+.copy-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 20px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-pop);
+}
+
+.copy-dialog::backdrop {
+  background: var(--scrim);
+}
+
+.copy-dialog-text {
+  margin: 0 0 12px;
+}
+
+.copy-dialog-area {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink);
+  font: 12px/1.5 var(--font-mono);
+  resize: vertical;
+}
+
+.copy-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
