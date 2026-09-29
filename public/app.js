@@ -32,9 +32,13 @@ const LEVELS = {
 };
 
 const state = {
+  mode: 'radius', // 'radius' = 반경(원)으로 찾기, 'area' = 직접 그린 대상지로 찾기
   center: null, // L.LatLng
   radius: 500,
-  data: null, // /api/stores 응답
+  radiusData: null, // 마지막 반경 조회 결과
+  data: null, // 지금 화면에 보이는 결과 (반경 조회 또는 고른 대상지)
+  sites: [], // 직접 그린 대상지: { id, name, points: [[lat, lng], ...], data, loading, error }
+  selectedSiteId: null,
   level: 'large',
   selectedKey: null,
   request: null, // 진행 중인 조회의 AbortController
@@ -51,8 +55,10 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> 기여자',
 }).addTo(map);
 
-const areaLayer = L.layerGroup().addTo(map);
+const radiusLayer = L.layerGroup().addTo(map); // 반경 원 + 가운데 표시
+const siteLayer = L.layerGroup(); // 직접 그린 대상지들
 const storeLayer = L.layerGroup().addTo(map);
+const drawLayer = L.layerGroup().addTo(map); // 그리는 중인 선
 
 const legend = L.control({ position: 'bottomleft' });
 legend.onAdd = () => {
@@ -79,7 +85,15 @@ map.on('preclick', () => {
 });
 map.on('click', (e) => {
   if (ignoreClick) return;
+  if (drawing.active) {
+    addDrawPoint(e.latlng);
+    return;
+  }
   $('candidates').hidden = true;
+  if (state.mode === 'area') {
+    setStatus('지금은 ‘영역 직접 그리기’예요. [＋ 새 대상지 그리기]를 누른 뒤 지도를 눌러 꼭짓점을 찍으세요.');
+    return;
+  }
   searchAt(e.latlng, { fit: 'auto' });
 });
 
@@ -87,8 +101,9 @@ map.on('click', (e) => {
 async function searchAt(latlng, { fit }) {
   state.center = L.latLng(latlng);
   state.data = null;
+  state.radiusData = null;
   state.selectedKey = null;
-  drawArea(fit);
+  drawRadius(fit);
   render();
 
   state.request?.abort();
@@ -102,9 +117,10 @@ async function searchAt(latlng, { fit }) {
     radius: String(state.radius),
   });
   try {
-    const data = await getJson(`/api/stores?${params}`, controller.signal);
+    const data = await requestJson(`/api/stores?${params}`, { signal: controller.signal });
     for (const s of data.stores) s.color = colorForLarge(s.large);
-    state.data = data;
+    state.radiusData = data;
+    if (state.mode === 'radius') state.data = data;
     setStatus('');
   } catch (err) {
     if (err.name === 'AbortError') return;
@@ -115,8 +131,8 @@ async function searchAt(latlng, { fit }) {
   render();
 }
 
-function drawArea(fit) {
-  areaLayer.clearLayers();
+function drawRadius(fit) {
+  radiusLayer.clearLayers();
   storeLayer.clearLayers();
   if (!state.center) return;
   const circle = L.circle(state.center, {
@@ -127,12 +143,13 @@ function drawArea(fit) {
     fillColor: '#0b0b0b',
     fillOpacity: 0.04,
     interactive: false,
-  }).addTo(areaLayer);
+  }).addTo(radiusLayer);
   L.marker(state.center, {
     icon: L.divIcon({ className: 'center-pin', iconSize: [18, 18] }),
     interactive: false,
     keyboard: false,
-  }).addTo(areaLayer);
+  }).addTo(radiusLayer);
+  restackLayers();
 
   const bounds = circle.getBounds();
   if (fit === 'always' || !map.getBounds().contains(bounds)) {
@@ -140,12 +157,19 @@ function drawArea(fit) {
   }
 }
 
+// 그리는 순서(아래→위): 내 SHP → 대상지 → 반경 원 → 가게 점. 점이 늘 맨 위에 있어야 누를 수 있다.
+function restackLayers() {
+  radiusLayer.eachLayer((l) => l.bringToBack && l.bringToBack());
+  siteLayer.eachLayer((l) => l.bringToBack && l.bringToBack());
+  for (const overlay of overlays) overlay.layer?.bringToBack();
+}
+
 async function searchAddress(query) {
   $('candidates').hidden = true;
   setStatus('주소를 찾는 중…', 'loading');
   let results;
   try {
-    results = await getJson(`/api/geocode?${new URLSearchParams({ q: query })}`);
+    results = await requestJson(`/api/geocode?${new URLSearchParams({ q: query })}`);
   } catch (err) {
     setStatus(err.message, 'error');
     return;
@@ -155,7 +179,17 @@ async function searchAddress(query) {
     return;
   }
   showCandidates(results, 0);
-  searchAt(results[0], { fit: 'always' });
+  goToPlace(results[0]);
+}
+
+// 반경 모드면 그 자리에서 찾고, 대상지 모드면 지도만 옮긴다(그 근처에 그리도록).
+function goToPlace(place) {
+  if (state.mode === 'area') {
+    map.setView([place.lat, place.lng], 17);
+    setStatus('이 근처에 대상지를 그려 보세요. [＋ 새 대상지 그리기]를 누르면 시작합니다.');
+    return;
+  }
+  searchAt(place, { fit: 'always' });
 }
 
 function showCandidates(results, activeIndex) {
@@ -168,7 +202,7 @@ function showCandidates(results, activeIndex) {
     button.setAttribute('aria-current', String(i === activeIndex));
     button.addEventListener('click', () => {
       showCandidates(results, i);
-      searchAt(r, { fit: 'always' });
+      goToPlace(r);
     });
     const li = el('li');
     li.append(button);
@@ -176,19 +210,25 @@ function showCandidates(results, activeIndex) {
   });
 }
 
-async function getJson(url, signal) {
+// body를 주면 JSON으로 POST 한다.
+async function requestJson(url, { signal, body } = {}) {
   let res;
   try {
-    res = await fetch(url, { signal });
+    res = await fetch(
+      url,
+      body === undefined
+        ? { signal }
+        : { signal, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    );
   } catch (err) {
     if (err.name === 'AbortError') throw err;
     throw new Error(
       '지도 프로그램(까만 창)이 꺼져 있어요. 폴더의 start-windows를 더블클릭해서(또는 npm start로) 다시 켠 뒤 이 페이지를 새로고침하세요.',
     );
   }
-  const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.error || `서버 응답 오류 (HTTP ${res.status})`);
-  return body;
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(payload?.error || `서버 응답 오류 (HTTP ${res.status})`);
+  return payload;
 }
 
 // ── 그리기 ──────────────────────────────────────────────────────────────
@@ -232,6 +272,7 @@ function renderStores() {
       fillColor: selected && s.color === OTHER_COLOR ? SELECTED_OTHER_COLOR : s.color,
       fillOpacity: 0.95,
       bubblingMouseEvents: false,
+      interactive: !drawing.active, // 그리는 중에는 점을 눌러도 꼭짓점이 찍히게
     });
     // Leaflet은 문자열을 HTML로 넣으므로, 가게 이름은 항상 텍스트 노드로 넘긴다.
     const tooltip = here.length > 1 ? `${s.name} 외 ${here.length - 1}곳` : s.name;
@@ -270,14 +311,18 @@ function renderStats() {
 
   const stores = data.stores;
   $('total-count').textContent = numberFormat.format(stores.length);
-  $('summary-meta').textContent = [`반경 ${formatRadius(data.radius)}`, formatYearMonth(data.stdrYm)].filter(Boolean).join(' · ');
+  const scope = scopeInfo();
+  $('summary-meta').textContent = [scope.meta, formatYearMonth(data.stdrYm)].filter(Boolean).join(' · ');
 
   const truncated = $('truncated');
   truncated.hidden = !data.truncated;
-  truncated.textContent = data.truncated
-    ? `이 반경에는 가게가 ${numberFormat.format(data.totalCount)}개 있지만 ${numberFormat.format(stores.length)}개만 불러왔어요. ` +
-      '업종별 개수도 불러온 가게 기준입니다. 반경을 줄이면 전부 볼 수 있어요.'
-    : '';
+  truncated.textContent = !data.truncated
+    ? ''
+    : data.kind === 'area'
+      ? `이 대상지는 가게가 많아서 일부(${numberFormat.format(stores.length)}개)만 불러왔어요. ` +
+        '업종별 개수도 불러온 가게 기준입니다. 대상지를 작게 나눠 그리면 전부 볼 수 있어요.'
+      : `이 반경에는 가게가 ${numberFormat.format(data.totalCount)}개 있지만 ${numberFormat.format(stores.length)}개만 불러왔어요. ` +
+        '업종별 개수도 불러온 가게 기준입니다. 반경을 줄이면 전부 볼 수 있어요.';
 
   for (const button of document.querySelectorAll('[data-level]')) {
     button.setAttribute('aria-pressed', String(button.dataset.level === state.level));
@@ -310,7 +355,7 @@ function renderStats() {
 
   const list = $('category-list');
   if (!rows.length) {
-    list.replaceChildren(el('li', 'empty', '이 반경 안에는 등록된 가게가 없어요.'));
+    list.replaceChildren(el('li', 'empty', `${scope.where} 안에는 등록된 가게가 없어요.`));
     return;
   }
   const max = rows[0].count;
@@ -369,6 +414,13 @@ function colorForLarge(name) {
 
 function formatRadius(m) {
   return m >= 1000 ? `${m / 1000}km` : `${m}m`;
+}
+
+// 1평 = 3.3058㎡
+function formatArea(m2) {
+  if (!Number.isFinite(m2)) return '-';
+  if (m2 >= 1_000_000) return `${(m2 / 1_000_000).toFixed(2)}㎢`;
+  return `${numberFormat.format(Math.round(m2))}㎡ (약 ${numberFormat.format(Math.round(m2 / 3.3058))}평)`;
 }
 
 function formatShare(count, total) {
@@ -455,12 +507,40 @@ function exportFileName() {
   return fileName(selected ? LEVELS[state.level].label(selected) || '미분류' : '전체', 'zip');
 }
 
-// 예: 상가_김천시 자산동_전체_반경300m_20260923.xlsx
+// 예: 상가_김천시 자산동_대분류별_반경300m_20260923.xlsx, 상가_역앞 상권_대분류별_20260923.xlsx
 function fileName(what, extension) {
+  return datedFileName(['상가', ...scopeInfo().fileParts(what)], extension);
+}
+
+function datedFileName(parts, extension) {
   const d = new Date();
   const day = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-  const parts = ['상가', placeName(), what, `반경${formatRadius(state.data.radius)}`, day].filter(Boolean);
-  return `${parts.join('_')}.${extension}`.replace(/[\\/:*?"<>|]/g, '·');
+  return `${[...parts, day].filter(Boolean).join('_')}.${extension}`.replace(/[\\/:*?"<>|]/g, '·');
+}
+
+// 지금 결과가 반경 조회인지 대상지인지에 따라 달라지는 글과 파일 이름 조각
+function scopeInfo() {
+  const data = state.data;
+  const site = currentSite();
+  if (data && data.kind === 'area' && site) {
+    return {
+      meta: `${site.name} · 면적 ${formatArea(data.areaM2)}`,
+      where: '이 대상지',
+      fileParts: (what) => [site.name, what],
+      summary: [['대상지', site.name], ['면적', formatArea(data.areaM2)], ['꼭짓점', `${site.points.length}개`]],
+    };
+  }
+  return {
+    meta: data ? `반경 ${formatRadius(data.radius)}` : '',
+    where: '이 반경',
+    fileParts: (what) => [placeName(), what, data ? `반경${formatRadius(data.radius)}` : ''],
+    summary: data
+      ? [
+          ['위치', [placeName(), `위도 ${data.center.lat}, 경도 ${data.center.lng}`].filter(Boolean).join(' · ')],
+          ['반경', formatRadius(data.radius)],
+        ]
+      : [],
+  };
 }
 
 // 불러온 가게들이 가장 많이 속한 행정동 (예: "김천시 자산동")
@@ -498,12 +578,11 @@ async function exportExcel() {
     const total = data.stores.length;
     const summaryRows = [
       ['항목', '내용'],
-      ['위치', [placeName(), `위도 ${data.center.lat}, 경도 ${data.center.lng}`].filter(Boolean).join(' · ')],
-      ['반경', formatRadius(data.radius)],
+      ...scopeInfo().summary,
       ['데이터 기준', formatYearMonth(data.stdrYm) || '-'],
       ['가게 수', total],
     ];
-    if (data.truncated) summaryRows.push(['주의', `가게가 ${data.totalCount}개라 ${total}개만 불러왔습니다. 반경을 줄이면 전부 받을 수 있습니다.`]);
+    if (data.truncated) summaryRows.push(['주의', `가게가 많아 ${total}개만 불러왔습니다. 범위를 줄이면 전부 받을 수 있습니다.`]);
     summaryRows.push([], { bold: true, cells: ['대분류', '가게 수', '비율'] });
     for (const g of sorted) summaryRows.push([g.label, g.stores.length, { value: g.stores.length / total, style: 'percent' }]);
 
@@ -610,8 +689,8 @@ function drawOverlay(overlay, fit) {
     group.addLayer(layer);
   }
   group.addTo(map);
-  group.bringToBack(); // 가게 점보다 아래에 그려서 점을 누를 수 있게 한다.
   overlay.layer = group;
+  restackLayers(); // 가게 점·대상지보다 아래에 그려서 그것들을 누를 수 있게 한다.
 
   const bounds = group.getBounds();
   overlay.outside = !bounds.isValid() || !KOREA_BOUNDS.intersects(bounds);
@@ -756,7 +835,404 @@ function setOverlayStatus(message, kind = '') {
   status.hidden = !message;
 }
 
+// ── 찾는 방법 바꾸기: 반경(원) ↔ 영역 직접 그리기 ──────────────────────
+function setMode(mode) {
+  if (state.mode === mode) return;
+  if (drawing.active) stopDrawing();
+  state.mode = mode;
+  state.selectedKey = null;
+  for (const b of document.querySelectorAll('[data-mode]')) b.setAttribute('aria-checked', String(b.dataset.mode === mode));
+  $('radius-panel').hidden = mode !== 'radius';
+  $('site-panel').hidden = mode !== 'area';
+
+  if (mode === 'radius') {
+    siteLayer.remove();
+    radiusLayer.addTo(map);
+    state.data = state.radiusData;
+    setStatus(state.data ? '' : '지도를 클릭하거나 주소를 검색해 보세요.');
+  } else {
+    radiusLayer.remove();
+    siteLayer.addTo(map);
+    if (!currentSite() && state.sites.length) state.selectedSiteId = state.sites[0].id;
+    const site = currentSite();
+    state.data = site?.data || null;
+    if (site && !site.data && !site.loading) loadSite(site);
+    else if (!site) setStatus('[＋ 새 대상지 그리기]를 누르고, 지도를 눌러 꼭짓점을 찍어 원하는 모양으로 영역을 만드세요.');
+    else setStatus(site.error || '', site.error ? 'error' : '');
+  }
+  renderSites();
+  render();
+}
+
+// ── 대상지 직접 그리기 ──────────────────────────────────────────────────
+const DRAW_COLOR = '#0b0b0b';
+const CLOSE_DISTANCE_PX = 12; // 첫 점에서 이만큼 안쪽을 누르면 영역을 닫는다
+const drawing = { active: false, points: [], guide: null };
+
+function startDrawing() {
+  if (state.mode !== 'area') setMode('area');
+  drawing.active = true;
+  drawing.points = [];
+  map.doubleClickZoom.disable();
+  map.getContainer().classList.add('drawing');
+  $('draw-help').hidden = false;
+  $('draw-site').disabled = true;
+  setStatus('');
+  renderDrawing();
+  renderSites(); // 그리는 동안 기존 대상지는 누르지 않게
+  renderStores(); // 가게 점도 누르지 않게
+}
+
+function stopDrawing() {
+  drawing.active = false;
+  drawing.points = [];
+  drawing.guide = null;
+  drawLayer.clearLayers();
+  map.doubleClickZoom.enable();
+  map.getContainer().classList.remove('drawing');
+  $('draw-help').hidden = true;
+  $('draw-site').disabled = false;
+  renderSites();
+  renderStores();
+}
+
+function addDrawPoint(latlng) {
+  const first = drawing.points[0];
+  if (first && drawing.points.length >= 3) {
+    const distance = map.latLngToContainerPoint(latlng).distanceTo(map.latLngToContainerPoint(first));
+    if (distance <= CLOSE_DISTANCE_PX) {
+      finishDrawing();
+      return;
+    }
+  }
+  drawing.points.push(L.latLng(latlng));
+  renderDrawing();
+}
+
+function undoDrawPoint() {
+  drawing.points.pop();
+  renderDrawing();
+}
+
+function finishDrawing() {
+  // 더블클릭하면 같은 자리에 점이 두 번 찍히므로, 화면에서 거의 겹치는 점은 하나로 친다.
+  const points = [];
+  for (const p of drawing.points) {
+    const last = points[points.length - 1];
+    if (!last || map.latLngToContainerPoint(p).distanceTo(map.latLngToContainerPoint(last)) > 3) points.push(p);
+  }
+  if (points.length > 3 && map.latLngToContainerPoint(points[0]).distanceTo(map.latLngToContainerPoint(points[points.length - 1])) <= 3) {
+    points.pop();
+  }
+  if (points.length < 3) {
+    setStatus('꼭짓점을 3개 이상 찍어야 영역이 만들어져요.', 'error');
+    return;
+  }
+  stopDrawing();
+  const site = {
+    id: `site-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    name: nextSiteName(),
+    points: points.map((p) => [Number(p.lat.toFixed(6)), Number(p.lng.toFixed(6))]),
+    data: null,
+    loading: false,
+    error: '',
+  };
+  state.sites.push(site);
+  saveSites();
+  selectSite(site.id);
+}
+
+function nextSiteName() {
+  const used = new Set(state.sites.map((s) => s.name));
+  let n = state.sites.length + 1;
+  while (used.has(`대상지 ${n}`)) n++;
+  return `대상지 ${n}`;
+}
+
+function renderDrawing() {
+  drawLayer.clearLayers();
+  drawing.guide = null;
+  const pts = drawing.points;
+  const count = pts.length;
+  $('draw-count').textContent = count ? `꼭짓점 ${count}개` : '아직 찍은 점이 없어요';
+  $('draw-finish').disabled = count < 3;
+  $('draw-undo').disabled = count === 0;
+  if (!drawing.active || !count) return;
+
+  const quiet = { interactive: false, bubblingMouseEvents: true };
+  if (count >= 2) L.polyline(pts, { ...quiet, color: DRAW_COLOR, weight: 2.5 }).addTo(drawLayer);
+  if (count >= 3) L.polygon(pts, { ...quiet, stroke: false, fillColor: DRAW_COLOR, fillOpacity: 0.06 }).addTo(drawLayer);
+  drawing.guide = L.polyline([], { ...quiet, color: DRAW_COLOR, weight: 1.5, dashArray: '5 5', opacity: 0.7 }).addTo(drawLayer);
+  pts.forEach((p, i) => {
+    // 첫 점은 크게: 다시 누르면 닫힌다는 표시
+    L.circleMarker(p, {
+      ...quiet,
+      radius: i === 0 && count >= 3 ? 7 : 4,
+      color: DRAW_COLOR,
+      weight: 2,
+      fillColor: i === 0 && count >= 3 ? '#fcd34d' : '#ffffff',
+      fillOpacity: 1,
+    }).addTo(drawLayer);
+  });
+}
+
+// 마지막 점에서 마우스까지(그리고 첫 점으로 돌아가는) 안내선
+map.on('mousemove', (e) => {
+  if (!drawing.active || !drawing.guide || !drawing.points.length) return;
+  const pts = drawing.points;
+  drawing.guide.setLatLngs(pts.length >= 2 ? [pts[pts.length - 1], e.latlng, pts[0]] : [pts[0], e.latlng]);
+});
+
+map.on('dblclick', () => {
+  if (drawing.active) finishDrawing();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (!drawing.active) return;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+  if (e.key === 'Escape') {
+    stopDrawing();
+    setStatus('그리기를 취소했어요.');
+  } else if (e.key === 'Enter' && !typing) {
+    e.preventDefault();
+    finishDrawing();
+  } else if (!typing && (e.key === 'Backspace' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'))) {
+    e.preventDefault();
+    undoDrawPoint();
+  }
+});
+
+// ── 대상지 목록 ────────────────────────────────────────────────────────
+const SITES_STORAGE_KEY = 'lifemomo.sites.v1';
+
+function currentSite() {
+  return state.sites.find((s) => s.id === state.selectedSiteId) || null;
+}
+
+function selectSite(id) {
+  state.selectedSiteId = id;
+  state.selectedKey = null;
+  const site = currentSite();
+  state.data = site?.data || null;
+  renderSites();
+  render();
+  if (!site) return;
+  const bounds = L.latLngBounds(site.points);
+  if (!map.getBounds().contains(bounds)) map.fitBounds(bounds, { padding: [24, 24] });
+  if (!site.data && !site.loading) loadSite(site);
+  else setStatus(site.loading ? `‘${site.name}’ 안의 가게를 불러오는 중…` : site.error, site.loading ? 'loading' : site.error ? 'error' : '');
+}
+
+async function loadSite(site) {
+  site.loading = true;
+  site.error = '';
+  renderSiteList();
+  if (site === currentSite()) setStatus(`‘${site.name}’ 안의 가게를 불러오는 중…`, 'loading');
+  try {
+    const data = await requestJson('/api/stores/area', { body: { points: site.points } });
+    for (const s of data.stores) s.color = colorForLarge(s.large);
+    site.data = data;
+  } catch (err) {
+    site.error = err.message;
+  }
+  site.loading = false;
+  if (!state.sites.includes(site)) return; // 불러오는 사이에 지웠다
+  if (site === currentSite() && state.mode === 'area') {
+    state.data = site.data;
+    setStatus(site.error, site.error ? 'error' : '');
+    render();
+  }
+  renderSiteList();
+}
+
+function renameSite(site) {
+  const name = window.prompt('대상지 이름을 입력하세요', site.name);
+  if (name == null) return;
+  const trimmed = name.trim().slice(0, 40);
+  if (!trimmed) return;
+  site.name = trimmed;
+  saveSites();
+  renderSites();
+  if (site === currentSite()) render();
+}
+
+function deleteSite(site) {
+  if (!window.confirm(`‘${site.name}’을(를) 지울까요?`)) return;
+  state.sites.splice(state.sites.indexOf(site), 1);
+  saveSites();
+  if (state.selectedSiteId === site.id) {
+    state.selectedSiteId = null;
+    state.data = null;
+    state.selectedKey = null;
+    setStatus('');
+    render();
+  }
+  renderSites();
+}
+
+function renderSites() {
+  siteLayer.clearLayers();
+  for (const site of state.sites) {
+    const selected = site.id === state.selectedSiteId;
+    const polygon = L.polygon(site.points, {
+      color: selected ? DRAW_COLOR : '#52514e',
+      weight: selected ? 2.5 : 1.5,
+      dashArray: selected ? null : '6 5',
+      fillColor: DRAW_COLOR,
+      fillOpacity: selected ? 0.05 : 0.02,
+      interactive: !drawing.active,
+      bubblingMouseEvents: false,
+    });
+    polygon.on('click', () => selectSite(site.id));
+    polygon.bindTooltip(() => el('span', null, site.name), {
+      permanent: true,
+      direction: 'center',
+      className: `site-label${selected ? ' selected' : ''}`,
+    });
+    siteLayer.addLayer(polygon);
+  }
+  restackLayers();
+  renderSiteList();
+}
+
+function renderSiteList() {
+  const list = $('site-list');
+  $('site-empty').hidden = state.sites.length > 0;
+  $('export-sites').hidden = state.sites.length === 0;
+  list.replaceChildren(
+    ...state.sites.map((site) => {
+      const selected = site.id === state.selectedSiteId;
+      const item = el('li', `site-item${selected ? ' selected' : ''}`);
+      const pick = el('button', 'site-pick');
+      pick.type = 'button';
+      pick.setAttribute('aria-pressed', String(selected));
+      pick.addEventListener('click', () => selectSite(site.id));
+      const status = site.loading
+        ? '불러오는 중…'
+        : site.error
+          ? '불러오지 못함'
+          : site.data
+            ? `${numberFormat.format(site.data.stores.length)}개`
+            : '';
+      pick.append(el('span', 'site-name', site.name), el('span', 'site-count', status));
+
+      const actions = el('div', 'site-actions');
+      const rename = el('button', null, '이름 바꾸기');
+      rename.type = 'button';
+      rename.addEventListener('click', () => renameSite(site));
+      const remove = el('button', null, '지우기');
+      remove.type = 'button';
+      remove.addEventListener('click', () => deleteSite(site));
+      actions.append(rename, remove);
+
+      item.append(pick, actions);
+      return item;
+    }),
+  );
+}
+
+// 그린 대상지(모양과 이름)는 이 브라우저에 저장해 두었다가 다음에 다시 보여 준다. 가게 목록은 저장하지 않는다.
+function saveSites() {
+  try {
+    localStorage.setItem(SITES_STORAGE_KEY, JSON.stringify(state.sites.map(({ id, name, points }) => ({ id, name, points }))));
+  } catch {
+    // 저장이 막힌 브라우저(사생활 보호 모드 등)에서는 이번에만 쓴다.
+  }
+}
+
+function loadSavedSites() {
+  let saved = [];
+  try {
+    saved = JSON.parse(localStorage.getItem(SITES_STORAGE_KEY) || '[]');
+  } catch {
+    saved = [];
+  }
+  if (!Array.isArray(saved)) return;
+  const valid = (p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite);
+  state.sites = saved
+    .filter((s) => s && typeof s.id === 'string' && typeof s.name === 'string' && Array.isArray(s.points) && s.points.length >= 3 && s.points.every(valid))
+    .map((s) => ({ id: s.id, name: s.name, points: s.points, data: null, loading: false, error: '' }));
+}
+
+// ── 대상지 모두 비교 엑셀 ───────────────────────────────────────────────
+// 비교(대분류 × 대상지 개수표) + 대상지마다 가게 목록 시트.
+async function exportSitesExcel() {
+  const button = $('export-sites');
+  button.disabled = true;
+  try {
+    for (const site of state.sites) {
+      if (!site.data) {
+        setStatus(`‘${site.name}’ 안의 가게를 불러오는 중…`, 'loading');
+        await loadSite(site);
+      }
+      if (site.error) throw new Error(`‘${site.name}’: ${site.error}`);
+    }
+    setStatus('');
+    const sites = state.sites;
+    const totals = new Map();
+    for (const site of sites) {
+      for (const s of site.data.stores) totals.set(s.large || '미분류', (totals.get(s.large || '미분류') || 0) + 1);
+    }
+    const categories = [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko')).map(([label]) => label);
+    const countIn = (site, label) => site.data.stores.filter((s) => (s.large || '미분류') === label).length;
+
+    const compare = [
+      ['대분류', ...sites.map((s) => s.name), '합계'],
+      ...categories.map((label) => [label, ...sites.map((s) => countIn(s, label)), totals.get(label)]),
+      { bold: true, cells: ['합계', ...sites.map((s) => s.data.stores.length), sites.reduce((n, s) => n + s.data.stores.length, 0)] },
+      [],
+      ['면적(㎡)', ...sites.map((s) => s.data.areaM2)],
+      ['데이터 기준', ...sites.map((s) => formatYearMonth(s.data.stdrYm) || '-')],
+    ];
+    if (sites.some((s) => s.data.truncated)) {
+      compare.push(['주의', '가게가 많은 대상지는 일부만 불러왔습니다. 작게 나눠 그리면 전부 받을 수 있습니다.']);
+    }
+
+    const header = ['대분류', '상호명', '지점명', '중분류', '소분류', '도로명주소', '지번주소', '층'];
+    const rank = new Map(categories.map((label, i) => [label, i]));
+    const siteSheet = (site) => ({
+      name: site.name,
+      header: true,
+      autoFilter: true,
+      widths: [14, 28, 12, 16, 20, 40, 34, 8],
+      rows: [
+        header,
+        ...[...site.data.stores]
+          .sort((a, b) => rank.get(a.large || '미분류') - rank.get(b.large || '미분류') || a.name.localeCompare(b.name, 'ko'))
+          .map((s) => [s.large || '미분류', s.name, s.branch, s.medium, s.small, s.roadAddress || s.address, s.jibunAddress, formatFloor(s.floor)]),
+      ],
+    });
+
+    const bytes = await Xlsx.build([
+      { name: '비교', rows: compare, widths: [14, ...sites.map(() => 14), 10], header: true },
+      ...sites.map(siteSheet),
+    ]);
+    download(
+      new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      datedFileName(['상가', '대상지 비교', `${sites.length}곳`], 'xlsx'),
+    );
+  } catch (err) {
+    setStatus(`엑셀 파일을 만들지 못했어요: ${err.message}`, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 // ── 이벤트 연결 ─────────────────────────────────────────────────────────
+for (const button of document.querySelectorAll('[data-mode]')) {
+  button.addEventListener('click', () => setMode(button.dataset.mode));
+}
+$('draw-site').addEventListener('click', startDrawing);
+$('draw-finish').addEventListener('click', finishDrawing);
+$('draw-undo').addEventListener('click', undoDrawPoint);
+$('draw-cancel').addEventListener('click', () => {
+  stopDrawing();
+  setStatus('그리기를 취소했어요.');
+});
+$('export-sites').addEventListener('click', exportSitesExcel);
+loadSavedSites();
+renderSiteList();
+
 $('export-xlsx').addEventListener('click', exportExcel);
 $('export-shp').addEventListener('click', exportShp);
 
@@ -812,7 +1288,7 @@ $('clear-filter').addEventListener('click', () => {
   render();
 });
 
-getJson('/api/config')
+requestJson('/api/config')
   .then((config) => {
     $('key-warning').hidden = config.hasKey;
   })

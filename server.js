@@ -16,6 +16,11 @@ const ROWS_PER_PAGE = 1000; // 상가정보 API가 한 번에 주는 최대 건�
 const MAX_RADIUS_M = 2000; // 상가정보 API가 허용하는 최대 반경(m)
 const MIN_RADIUS_M = 50;
 const DEFAULT_RADIUS_M = 500;
+const MAX_AREA_POINTS = 500; // 직접 그린 영역의 꼭짓점 수 한도
+const MAX_AREA_CIRCLES = 9; // 영역을 덮는 2km 원 개수 한도 (가로·세로 약 8km)
+const AREA_CIRCLE_MARGIN_M = 15;
+const AREA_CONCURRENCY = 2;
+const MAX_BODY_BYTES = 200_000;
 const PAGE_CONCURRENCY = 3;
 const UPSTREAM_TIMEOUT_MS = 20_000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -160,6 +165,92 @@ function toStore(item) {
   };
 }
 
+// ── 직접 그린 영역(다각형) 계산 ──────────────────────────────────────────
+// 영역이 몇 km 안쪽이라, 경위도를 영역 가운데 기준의 평면 좌표(미터)로 펴서 계산한다.
+function localMeters(origin) {
+  const kx = 111320 * Math.cos((origin.lat * Math.PI) / 180);
+  const ky = 110540;
+  return {
+    forward: ([lat, lng]) => [(lng - origin.lng) * kx, (lat - origin.lat) * ky],
+    inverse: ([x, y]) => ({ lat: origin.lat + y / ky, lng: origin.lng + x / kx }),
+  };
+}
+
+// ring: [[x, y], ...] (닫는 점 없이). 짝홀 규칙이라 선이 서로 꼬여 있어도 동작한다.
+function insideRing(x, y, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function distanceToSegment(px, py, [ax, ay], [bx, by]) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const t = dx || dy ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy))) : 0;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+// points: [[x, y], ...] (평면 좌표)
+function bounds(points) {
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+
+// polygon: [[lat, lng], ...] 의 경계 상자 가운데
+function centerOf(polygon) {
+  const lats = polygon.map((p) => p[0]);
+  const lngs = polygon.map((p) => p[1]);
+  return { lat: (Math.min(...lats) + Math.max(...lats)) / 2, lng: (Math.min(...lngs) + Math.max(...lngs)) / 2 };
+}
+
+// polygon: [[lat, lng], ...] → 면적(㎡)
+function polygonAreaM2(polygon) {
+  const pts = polygon.map(localMeters(centerOf(polygon)).forward);
+  let twice = 0;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) twice += pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1];
+  return Math.abs(twice) / 2;
+}
+
+// 상가정보 API는 원(반경)으로만 찾으므로, 다각형을 덮는 원들을 구한다.
+// 반경 2km 원 하나로 덮이면 그 원 하나, 아니면 영역을 칸으로 나눠 칸마다 2km 원을 놓는다.
+function coveringCircles(polygon) {
+  const center = centerOf(polygon);
+  const local = localMeters(center);
+  const pts = polygon.map(local.forward);
+  const reach = Math.max(...pts.map(([x, y]) => Math.hypot(x, y))) + AREA_CIRCLE_MARGIN_M;
+  if (reach <= MAX_RADIUS_M) {
+    return [{ lat: round6(center.lat), lng: round6(center.lng), radius: Math.max(MIN_RADIUS_M, Math.ceil(reach)) }];
+  }
+
+  // 칸의 대각선 절반이 반경보다 작아야 원 하나가 칸 하나를 다 덮는다.
+  const side = (MAX_RADIUS_M - AREA_CIRCLE_MARGIN_M) * Math.SQRT2;
+  const m = bounds(pts);
+  const nx = Math.ceil((m.maxX - m.minX) / side) || 1;
+  const ny = Math.ceil((m.maxY - m.minY) / side) || 1;
+  const w = (m.maxX - m.minX) / nx;
+  const h = (m.maxY - m.minY) / ny;
+  const circles = [];
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < ny; j++) {
+      const cx = m.minX + (i + 0.5) * w;
+      const cy = m.minY + (j + 0.5) * h;
+      const touches =
+        insideRing(cx, cy, pts) || pts.some((p, k) => distanceToSegment(cx, cy, p, pts[(k + 1) % pts.length]) <= MAX_RADIUS_M);
+      if (!touches) continue;
+      const at = local.inverse([cx, cy]);
+      circles.push({ lat: round6(at.lat), lng: round6(at.lng), radius: MAX_RADIUS_M });
+    }
+  }
+  return circles;
+}
+
+const round6 = (n) => Number(n.toFixed(6));
+
 async function mapLimit(list, limit, fn) {
   const out = new Array(list.length);
   let next = 0;
@@ -245,22 +336,82 @@ function createServer(config) {
     };
   }
 
-  function handleStores(params) {
+  function requireKey() {
     if (!config.serviceKey) {
       throw new ApiError(503, '서버에 인증키가 없습니다. .env 파일에 DATA_GO_KR_SERVICE_KEY를 넣고 서버를 다시 켜 주세요.');
     }
+  }
+
+  function radiusQuery(query) {
+    return memo(storeCache, `${query.lat},${query.lng},${query.radius}`, () => fetchStoresInRadius(query));
+  }
+
+  function handleStores(params) {
+    requireKey();
     const lat = parseCoord(params.get('lat'), 32, 39.5);
     const lng = parseCoord(params.get('lng'), 124, 132);
     if (lat == null || lng == null) {
       throw new ApiError(400, '대한민국 안의 위치만 조회할 수 있습니다.');
     }
-    const query = {
-      lat: Number(lat.toFixed(6)),
-      lng: Number(lng.toFixed(6)),
+    return radiusQuery({
+      lat: round6(lat),
+      lng: round6(lng),
       radius: clampInt(params.get('radius'), MIN_RADIUS_M, MAX_RADIUS_M, DEFAULT_RADIUS_M),
+    });
+  }
+
+  // 직접 그린 영역 안의 가게: 영역을 덮는 원(들)로 불러온 뒤 영역 안에 있는 것만 남긴다.
+  async function handleArea(body) {
+    requireKey();
+    const raw = body && body.points;
+    if (!Array.isArray(raw) || raw.length < 3 || raw.length > MAX_AREA_POINTS) {
+      throw new ApiError(400, `영역의 꼭짓점은 3개 이상 ${MAX_AREA_POINTS}개 이하로 찍어 주세요.`);
+    }
+    const polygon = raw.map((p) => {
+      const lat = Array.isArray(p) ? parseCoord(p[0], 32, 39.5) : null;
+      const lng = Array.isArray(p) ? parseCoord(p[1], 124, 132) : null;
+      if (lat == null || lng == null) throw new ApiError(400, '대한민국 안에서만 영역을 그릴 수 있습니다.');
+      return [round6(lat), round6(lng)];
+    });
+    const circles = coveringCircles(polygon);
+    if (circles.length > MAX_AREA_CIRCLES) {
+      throw new ApiError(400, '영역이 너무 넓어요. 가로·세로 8km 안쪽으로, 또는 여러 대상지로 나눠 그려 주세요.');
+    }
+
+    const results = await mapLimit(circles, AREA_CONCURRENCY, radiusQuery);
+    const ring = polygon.map(([lat, lng]) => [lng, lat]);
+    const byId = new Map();
+    for (const result of results) {
+      for (const store of result.stores) {
+        if (insideRing(store.lng, store.lat, ring)) byId.set(store.id || Symbol('no-id'), store);
+      }
+    }
+    const stores = [...byId.values()];
+    return {
+      kind: 'area',
+      points: polygon,
+      areaM2: Math.round(polygonAreaM2(polygon)),
+      queries: circles.length,
+      totalCount: stores.length,
+      stdrYm: results.find((r) => r.stdrYm)?.stdrYm || '',
+      truncated: results.some((r) => r.truncated),
+      stores,
     };
-    const key = `${query.lat},${query.lng},${query.radius}`;
-    return memo(storeCache, key, () => fetchStoresInRadius(query));
+  }
+
+  async function readJsonBody(req) {
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) throw new ApiError(413, '보낸 영역 정보가 너무 큽니다.');
+      chunks.push(chunk);
+    }
+    try {
+      return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      throw new ApiError(400, '영역 정보를 읽지 못했습니다.');
+    }
   }
 
   function throttleNominatim(fn) {
@@ -332,6 +483,14 @@ function createServer(config) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
+      if (url.pathname === '/api/stores/area') {
+        if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST 요청만 받습니다.' });
+        // JSON만 받으면 다른 사이트가 몰래 이 주소를 불러 호출 한도를 쓰는 것도 막힌다(브라우저가 사전 확인을 요구).
+        if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) {
+          return sendJson(res, 415, { error: 'JSON으로 보내 주세요.' });
+        }
+        return sendJson(res, 200, await handleArea(await readJsonBody(req)));
+      }
       if (req.method !== 'GET') return sendJson(res, 405, { error: 'GET 요청만 받습니다.' });
       switch (url.pathname) {
         case '/api/config':
@@ -462,6 +621,8 @@ module.exports = {
   parseStorePage,
   toStore,
   readConfigFromEnv,
+  coveringCircles,
+  polygonAreaM2,
   cleanPastedKey,
   upsertServiceKey,
 };

@@ -5,7 +5,15 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { createServer, normalizeServiceKey, parseStorePage, cleanPastedKey, upsertServiceKey } = require('../server.js');
+const {
+  createServer,
+  normalizeServiceKey,
+  parseStorePage,
+  cleanPastedKey,
+  upsertServiceKey,
+  coveringCircles,
+  polygonAreaM2,
+} = require('../server.js');
 
 const SERVICE_KEY = 'test+key/abc==';
 const LARGE = [
@@ -18,12 +26,15 @@ let upstream;
 let upstreamUrl;
 let upstreamMode = 'ok';
 let upstreamTotal = 2500;
+let upstreamIdByPosition = false; // 실제 API처럼 같은 가게는 어느 원에서 불러도 같은 번호
 const upstreamRequests = [];
 
 function makeItem(i, cx, cy) {
   const [lc, ln, mc, mn, sc, sn] = LARGE[i % LARGE.length];
+  const lon = cx + (i % 50) * 0.0001;
+  const lat = cy + Math.floor(i / 50) * 0.0001;
   return {
-    bizesId: `MA${String(i).padStart(10, '0')}`,
+    bizesId: upstreamIdByPosition ? `P${Math.round(lon * 1e4)}_${Math.round(lat * 1e4)}` : `MA${String(i).padStart(10, '0')}`,
     bizesNm: `가게${i}`,
     brchNm: i % 7 === 0 ? '역삼점' : '',
     indsLclsCd: lc, indsLclsNm: ln,
@@ -33,8 +44,8 @@ function makeItem(i, cx, cy) {
     rdnmAdr: `서울특별시 강남구 테헤란로 ${i}`,
     lnoAdr: `서울특별시 강남구 역삼동 ${i}`,
     flrNo: '1',
-    lon: cx + (i % 50) * 0.0001,
-    lat: cy + Math.floor(i / 50) * 0.0001,
+    lon,
+    lat,
   };
 }
 
@@ -307,4 +318,122 @@ test('화면 파일만 내려주고 public 밖의 파일은 주지 않는다', a
   } finally {
     await app.close();
   }
+});
+
+// ── 직접 그린 영역 ──────────────────────────────────────────────────────
+
+const postArea = (base, body, contentType = 'application/json') =>
+  fetch(`${base}/api/stores/area`, {
+    method: 'POST',
+    headers: { 'Content-Type': contentType },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+
+// 가짜 API가 원 중심(cx, cy)에서 만드는 가게 좌표를 다시 만들어, 사각형 안에 드는 것만 센다.
+function expectedInside(calls, [minLat, minLng, maxLat, maxLng]) {
+  const seen = new Set();
+  for (const c of calls) {
+    const cx = Number(c.params.get('cx'));
+    const cy = Number(c.params.get('cy'));
+    for (let i = 0; i < upstreamTotal; i++) {
+      const lon = cx + (i % 50) * 0.0001;
+      const lat = cy + Math.floor(i / 50) * 0.0001;
+      if (lat >= minLat && lat <= maxLat && lon >= minLng && lon <= maxLng) seen.add(`${Math.round(lon * 1e4)}_${Math.round(lat * 1e4)}`);
+    }
+  }
+  return seen.size;
+}
+
+const rect = ([minLat, minLng, maxLat, maxLng]) => [[minLat, minLng], [minLat, maxLng], [maxLat, maxLng], [maxLat, minLng]];
+
+test('영역 계산: 작은 영역은 딱 맞는 원 하나, 큰 영역은 2km 원 여러 개로 덮는다', () => {
+  const small = coveringCircles(rect([36.118, 128.108, 36.122, 128.112]));
+  assert.equal(small.length, 1);
+  assert.deepEqual([small[0].lat, small[0].lng], [36.12, 128.11]);
+  // 가운데에서 모서리까지 약 283m + 여유 15m
+  assert.ok(small[0].radius >= 283 && small[0].radius <= 300, String(small[0].radius));
+
+  const big = coveringCircles(rect([36.093, 128.083, 36.147, 128.137])); // 약 6km × 4.9km
+  assert.equal(big.length, 6);
+  assert.ok(big.every((c) => c.radius === 2000));
+
+  // 면적: 약 400m × 400m (위도 0.004° × 경도 0.004°)
+  const area = polygonAreaM2(rect([36.118, 128.108, 36.122, 128.112]));
+  assert.ok(Math.abs(area - 0.004 * 110540 * 0.004 * 111320 * Math.cos((36.12 * Math.PI) / 180)) < 1, String(area));
+});
+
+test('직접 그린 영역 안의 가게만 돌려준다', async () => {
+  upstreamMode = 'ok';
+  upstreamTotal = 1000;
+  upstreamIdByPosition = true;
+  upstreamRequests.length = 0;
+  const app = await startApp();
+  try {
+    const box = [37.5, 127.03, 37.50105, 127.03205];
+    const res = await postArea(app.base, { points: rect(box) });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    const calls = upstreamRequests.filter((r) => r.path === '/storeListInRadius');
+    assert.equal(data.kind, 'area');
+    assert.equal(data.queries, 1);
+    assert.equal(calls[0].params.get('radius'), String(Math.ceil(Math.hypot(0.000525 * 110540, 0.001025 * 111320 * Math.cos((37.500525 * Math.PI) / 180)) + 15)));
+    const expected = expectedInside(calls, box);
+    assert.ok(expected > 10, `테스트가 의미 있으려면 안쪽 가게가 있어야 한다 (${expected})`);
+    assert.equal(data.stores.length, expected);
+    assert.equal(data.totalCount, expected);
+    for (const st of data.stores) {
+      assert.ok(st.lat >= box[0] && st.lat <= box[2] && st.lng >= box[1] && st.lng <= box[3], `${st.lat},${st.lng}`);
+    }
+    assert.ok(data.areaM2 > 0);
+    assert.equal(data.stdrYm, '202506');
+  } finally {
+    upstreamIdByPosition = false;
+    await app.close();
+  }
+});
+
+test('넓은 영역은 여러 원으로 불러와 겹친 가게를 한 번만 센다', async () => {
+  upstreamMode = 'ok';
+  upstreamTotal = 2000;
+  upstreamIdByPosition = true;
+  upstreamRequests.length = 0;
+  const app = await startApp();
+  try {
+    const box = [37.47, 127.0, 37.5, 127.06]; // 약 3.3km × 5.3km
+    const data = await (await postArea(app.base, { points: rect(box) })).json();
+    const calls = upstreamRequests.filter((r) => r.path === '/storeListInRadius' && r.params.get('pageNo') === '1');
+    assert.ok(data.queries >= 2, String(data.queries));
+    assert.equal(calls.length, data.queries);
+    assert.equal(new Set(data.stores.map((st) => st.id)).size, data.stores.length, '같은 가게가 두 번 나오면 안 된다');
+    assert.equal(data.stores.length, expectedInside(calls, box));
+  } finally {
+    upstreamIdByPosition = false;
+    await app.close();
+  }
+});
+
+test('영역 요청이 이상하면 상가정보 API를 부르지 않고 알려 준다', async () => {
+  upstreamRequests.length = 0;
+  const app = await startApp();
+  const noKey = await startApp({ serviceKey: '' });
+  try {
+    const cases = [
+      [{ points: [[37.5, 127], [37.51, 127.01]] }, 400, /3개 이상/],
+      [{ points: [[40.7, -74], [40.71, -74], [40.71, -74.01]] }, 400, /대한민국/],
+      [{ points: rect([36.0, 127.9, 36.2, 128.2]) }, 400, /너무 넓어요/],
+      ['{not json', 400, /읽지 못했/],
+    ];
+    for (const [body, status, message] of cases) {
+      const res = await postArea(app.base, body);
+      assert.equal(res.status, status, JSON.stringify(body));
+      assert.match((await res.json()).error, message);
+    }
+    assert.equal((await postArea(app.base, { points: rect([37.5, 127, 37.51, 127.01]) }, 'text/plain')).status, 415);
+    assert.equal((await fetch(`${app.base}/api/stores/area`)).status, 405);
+    assert.equal((await postArea(noKey.base, { points: rect([37.5, 127, 37.51, 127.01]) })).status, 503);
+  } finally {
+    await app.close();
+    await noKey.close();
+  }
+  assert.equal(upstreamRequests.filter((r) => r.path === '/storeListInRadius').length, 0);
 });

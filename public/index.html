@@ -28,6 +28,14 @@
       <ul id="candidates" class="candidates" hidden></ul>
 
       <div class="field">
+        <span class="field-label" id="mode-label">찾는 방법</span>
+        <div id="mode-options" class="segmented" role="radiogroup" aria-labelledby="mode-label">
+          <button type="button" role="radio" data-mode="radius" aria-checked="true">반경(원)</button>
+          <button type="button" role="radio" data-mode="area" aria-checked="false">영역 직접 그리기</button>
+        </div>
+      </div>
+
+      <div id="radius-panel" class="field">
         <span class="field-label" id="radius-label">반경</span>
         <div id="radius-options" class="segmented" role="radiogroup" aria-labelledby="radius-label">
           <button type="button" role="radio" data-radius="100" aria-checked="false">100m</button>
@@ -37,6 +45,26 @@
           <button type="button" role="radio" data-radius="2000" aria-checked="false">2km</button>
         </div>
       </div>
+
+      <section id="site-panel" class="site-section" hidden aria-labelledby="site-title">
+        <div class="overlay-top">
+          <h2 id="site-title">대상지</h2>
+          <button type="button" id="draw-site" class="file-button">＋ 새 대상지 그리기</button>
+        </div>
+        <div id="draw-help" class="draw-help" hidden>
+          <p><strong>지도를 눌러 꼭짓점을 찍으세요.</strong> 첫 점(노란 점)을 다시 누르거나, 마지막 점에서 더블클릭하거나, [완료]를 누르면 영역이 닫혀요.</p>
+          <p id="draw-count" class="draw-count"></p>
+          <div class="draw-actions">
+            <button type="button" id="draw-finish" class="primary">완료</button>
+            <button type="button" id="draw-undo">한 점 지우기</button>
+            <button type="button" id="draw-cancel">취소</button>
+          </div>
+          <p class="hint">키보드: Enter 완료 · Backspace 한 점 지우기 · Esc 취소</p>
+        </div>
+        <p id="site-empty" class="hint">[＋ 새 대상지 그리기]를 누르고 지도에 선을 그어 원하는 모양으로 영역을 만드세요. 여러 개 만들어 비교할 수 있어요.</p>
+        <ul id="site-list" class="site-list"></ul>
+        <button type="button" id="export-sites" class="export-button" hidden>대상지 모두 비교 엑셀로 저장</button>
+      </section>
 
       <section class="overlay-section" aria-labelledby="overlay-title">
         <div class="overlay-top">
