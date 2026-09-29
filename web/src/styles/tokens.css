@@ -2,6 +2,8 @@
  * 디자인 토큰. 차트 색은 dataviz 기준 팔레트를 이 화면의 바탕색에 대해 다시 검증한 값이다.
  *   범주형(성별)  라이트 #2a78d6 #eb6834 / 다크 #3987e5 #d95926  — CVD·대비 모두 통과
  *   순서형(생애단계) 라이트 #86b6ef→#0d366b / 다크 #184f95→#b7d3f6 — 단일 색상, 명도 단조
+ *   연속형(히트맵 7단계) 라이트 #cde2fb→#0d366b / 다크 #0d366b→#cde2fb — 명도 단조, 인접 단계 구분 통과.
+ *     가장 옅은(0에 가까운) 단계만 배경 대비가 낮은데, 연속형에서는 허용되고 칸마다 값을 적어 둔다.
  */
 :root {
   color-scheme: light;
@@ -28,6 +30,24 @@
   --ord-2: #3987e5;
   --ord-3: #1c5cab;
   --ord-4: #0d366b;
+  --seq-1: #cde2fb;
+  --seq-2: #9ec5f4;
+  --seq-3: #6da7ec;
+  --seq-4: #3987e5;
+  --seq-5: #256abf;
+  --seq-6: #184f95;
+  --seq-7: #0d366b;
+  --seq-ink-1: #111110;
+  --seq-ink-2: #111110;
+  --seq-ink-3: #111110;
+  --seq-ink-4: #111110;
+  --seq-ink-5: #ffffff;
+  --seq-ink-6: #ffffff;
+  --seq-ink-7: #ffffff;
+  --ord-ink-1: #111110;
+  --ord-ink-2: #111110;
+  --ord-ink-3: #ffffff;
+  --ord-ink-4: #ffffff;
   --wash: rgba(42, 120, 214, 0.1);
   --focus: #2a78d6;
   --scrim: rgba(17, 17, 16, 0.32);
@@ -61,6 +81,24 @@
     --ord-2: #2a78d6;
     --ord-3: #6da7ec;
     --ord-4: #b7d3f6;
+    --seq-1: #0d366b;
+    --seq-2: #184f95;
+    --seq-3: #256abf;
+    --seq-4: #3987e5;
+    --seq-5: #6da7ec;
+    --seq-6: #9ec5f4;
+    --seq-7: #cde2fb;
+    --seq-ink-1: #ffffff;
+    --seq-ink-2: #ffffff;
+    --seq-ink-3: #ffffff;
+    --seq-ink-4: #111110;
+    --seq-ink-5: #111110;
+    --seq-ink-6: #111110;
+    --seq-ink-7: #111110;
+    --ord-ink-1: #ffffff;
+    --ord-ink-2: #ffffff;
+    --ord-ink-3: #111110;
+    --ord-ink-4: #111110;
     --wash: rgba(57, 135, 229, 0.16);
     --focus: #6da7ec;
     --scrim: rgba(0, 0, 0, 0.55);
@@ -88,6 +126,24 @@
   --ord-2: #2a78d6;
   --ord-3: #6da7ec;
   --ord-4: #b7d3f6;
+  --seq-1: #0d366b;
+  --seq-2: #184f95;
+  --seq-3: #256abf;
+  --seq-4: #3987e5;
+  --seq-5: #6da7ec;
+  --seq-6: #9ec5f4;
+  --seq-7: #cde2fb;
+  --seq-ink-1: #ffffff;
+  --seq-ink-2: #ffffff;
+  --seq-ink-3: #ffffff;
+  --seq-ink-4: #111110;
+  --seq-ink-5: #111110;
+  --seq-ink-6: #111110;
+  --seq-ink-7: #111110;
+  --ord-ink-1: #ffffff;
+  --ord-ink-2: #ffffff;
+  --ord-ink-3: #111110;
+  --ord-ink-4: #111110;
   --wash: rgba(57, 135, 229, 0.16);
   --focus: #6da7ec;
   --scrim: rgba(0, 0, 0, 0.55);

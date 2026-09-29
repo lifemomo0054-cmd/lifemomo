@@ -10,6 +10,7 @@ interface Props {
   title: string;
   subtitle?: ReactNode;
   legend?: ReactNode;
+  tools?: ReactNode; // 머리 오른쪽 도구 (예: 일/주/월 전환)
   table?: TableSpec;
   foot?: ReactNode;
   empty?: boolean;
@@ -18,7 +19,7 @@ interface Props {
 }
 
 /** 그래프 한 장. 모든 그래프는 같은 값을 표로도 볼 수 있다. */
-export function Panel({ fig, title, subtitle, legend, table, foot, empty, className, children }: Props) {
+export function Panel({ fig, title, subtitle, legend, tools, table, foot, empty, className, children }: Props) {
   const [view, setView] = useState<'chart' | 'table'>('chart');
   const id = useId();
 
@@ -32,14 +33,19 @@ export function Panel({ fig, title, subtitle, legend, table, foot, empty, classN
           </h2>
           {subtitle && <p className="panel-sub">{subtitle}</p>}
         </div>
-        {table && !empty && (
-          <div className="view-toggle" role="group" aria-label={`${title} 보기 방식`}>
-            <button type="button" aria-pressed={view === 'chart'} onClick={() => setView('chart')}>
-              차트
-            </button>
-            <button type="button" aria-pressed={view === 'table'} onClick={() => setView('table')}>
-              표
-            </button>
+        {(tools || (table && !empty)) && (
+          <div className="panel-tools">
+            {!empty && tools}
+            {table && !empty && (
+              <div className="view-toggle" role="group" aria-label={`${title} 보기 방식`}>
+                <button type="button" aria-pressed={view === 'chart'} onClick={() => setView('chart')}>
+                  차트
+                </button>
+                <button type="button" aria-pressed={view === 'table'} onClick={() => setView('table')}>
+                  표
+                </button>
+              </div>
+            )}
           </div>
         )}
       </header>

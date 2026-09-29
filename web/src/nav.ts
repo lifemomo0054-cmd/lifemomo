@@ -28,8 +28,8 @@ export const NAV: NavItem[] = [
     en: 'Temporal',
     group: 'ANALYSIS',
     summary: '날짜·요일·월 단위로 체류인구가 언제 늘고 주는지 봅니다.',
-    planned: ['일별 추이와 이동평균, 기간 비교', '요일 × 월 히트맵', '주말·평일 비교와 분포', '특정 날짜 확대 보기'],
-    ready: false,
+    planned: [],
+    ready: true,
   },
   {
     path: '/demographics',

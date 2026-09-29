@@ -20,8 +20,12 @@ export interface Summary {
   byGender: Float64Array;
   byAge: Float64Array;
   byAgeGender: Float64Array; // [연령대 × 성별 수 + 성별]
+  byDateAge: Float64Array; // [날짜 × 연령대 수 + 연령대]
+  byDateGender: Float64Array; // [날짜 × 성별 수 + 성별]
   byLifeStage: Float64Array;
   byRegion: Float64Array;
+  byRegionAge: Float64Array; // [거주지 × 연령대 수 + 연령대]
+  byRegionGender: Float64Array; // [거주지 × 성별 수 + 성별]
   rowsByRegion: Int32Array;
   byZone: Float64Array;
 }
@@ -39,7 +43,12 @@ export function summarize(ds: Dataset, filters: Filters): Summary {
   const byAge = new Float64Array(ds.ages.length);
   const nGender = ds.genders.length;
   const byAgeGender = new Float64Array(ds.ages.length * nGender);
+  const nAge = ds.ages.length;
+  const byDateAge = new Float64Array(ds.dates.length * nAge);
+  const byDateGender = new Float64Array(ds.dates.length * nGender);
   const byRegion = new Float64Array(ds.regions.length);
+  const byRegionAge = new Float64Array(ds.regions.length * nAge);
+  const byRegionGender = new Float64Array(ds.regions.length * nGender);
   const rowsByRegion = new Int32Array(ds.regions.length);
   let rowCount = 0;
   let nonzeroRows = 0;
@@ -66,7 +75,11 @@ export function summarize(ds: Dataset, filters: Filters): Summary {
     byGender[g] += p;
     byAge[a] += p;
     byAgeGender[a * nGender + g] += p;
+    byDateAge[d * nAge + a] += p;
+    byDateGender[d * nGender + g] += p;
     byRegion[r] += p;
+    byRegionAge[r * nAge + a] += p;
+    byRegionGender[r * nGender + g] += p;
     rowsByRegion[r]++;
   }
 
@@ -91,8 +104,12 @@ export function summarize(ds: Dataset, filters: Filters): Summary {
     byGender: toPeople(byGender),
     byAge: toPeople(byAge),
     byAgeGender: toPeople(byAgeGender),
+    byDateAge: toPeople(byDateAge),
+    byDateGender: toPeople(byDateGender),
     byLifeStage: toPeople(byLifeStage),
     byRegion: toPeople(byRegion),
+    byRegionAge: toPeople(byRegionAge),
+    byRegionGender: toPeople(byRegionGender),
     rowsByRegion,
     byZone: toPeople(byZone),
   };

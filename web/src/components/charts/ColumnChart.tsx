@@ -53,11 +53,25 @@ export function ColumnChart({
   const left = labelsFit ? 8 : TICK_GUTTER;
   const x = band(left);
   const useShort = columns.some((c) => textWidth(c.label, 12) > x.step() - 4);
+  // 짧은 이름으로도 겹치면 k개마다 하나씩만 적는다
+  const labelW = Math.max(...columns.map((c) => textWidth(useShort ? c.shortLabel ?? c.label : c.label, 12)));
+  const every = Math.max(1, Math.ceil((labelW + 8) / x.step()));
 
   const max = Math.max(1, ...columns.map((c) => c.value ?? 0));
-  const y = scaleLinear().domain([0, max]).nice(labelsFit ? 1 : 4).range([height - M.bottom, M.top + 4]);
+  const y = scaleLinear().domain([0, max]).range([height - M.bottom, M.top + 4]);
+  if (!labelsFit) y.nice(4); // 눈금을 그릴 때만 깔끔한 수로 늘린다
   const barW = Math.min(24, x.bandwidth());
   const a = active !== null ? columns[active] : null;
+
+  // 연속된 빈 칸(데이터 없음)은 띠 하나로 묶고, 자리가 되면 가운데에 한 번만 적는다
+  const gaps: { from: number; to: number }[] = [];
+  columns.forEach((c, i) => {
+    if (c.value !== null) return;
+    const last = gaps[gaps.length - 1];
+    if (last && last.to === i - 1) last.to = i;
+    else gaps.push({ from: i, to: i });
+  });
+  const gapNote = (g: { from: number; to: number }) => columns[g.from].emptyNote ?? '데이터 없음';
 
   return (
     <div className="chart" ref={ref} style={{ height }}>
@@ -71,6 +85,21 @@ export function ColumnChart({
               </text>
             </g>
           ))}
+        {gaps.map((g) => {
+          const x0 = x(columns[g.from].key)! - (x.step() - x.bandwidth()) / 2;
+          const w = x.step() * (g.to - g.from + 1);
+          const note = gapNote(g);
+          return (
+            <g key={`gap-${g.from}`}>
+              <rect className="nodata-band" x={x0} y={M.top} width={w} height={y(0) - M.top} />
+              {textWidth(note, 11) + 8 <= w && (
+                <text className="nodata-label" x={x0 + w / 2} y={M.top + 14} textAnchor="middle">
+                  {note}
+                </text>
+              )}
+            </g>
+          );
+        })}
         <line className="axis-line" x1={left} x2={width - M.right} y1={y(0)} y2={y(0)} />
         {columns.map((c, i) => {
           const cx = x(c.key)! + x.bandwidth() / 2;
@@ -100,14 +129,12 @@ export function ColumnChart({
                     </text>
                   )}
                 </>
-              ) : (
-                <text className="nodata-label" x={cx} y={y(0) - 8} textAnchor="middle">
-                  {c.emptyNote ?? '없음'}
+              ) : null}
+              {i % every === 0 && (
+                <text className="tick tick-strong" x={cx} y={height - M.bottom + 18} textAnchor="middle">
+                  {useShort ? c.shortLabel ?? c.label : c.label}
                 </text>
               )}
-              <text className="tick tick-strong" x={cx} y={height - M.bottom + 18} textAnchor="middle">
-                {useShort ? c.shortLabel ?? c.label : c.label}
-              </text>
             </g>
           );
         })}

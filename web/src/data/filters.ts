@@ -9,6 +9,7 @@ export type RegionScope =
   | { kind: 'external' } // 김천시 자체 거주자를 뺀 외부 유입
   | { kind: 'zone'; zone: string }
   | { kind: 'sido'; sido: string }
+  | { kind: 'city'; city: string } // 일반구를 합친 시 단위
   | { kind: 'region'; code: string };
 
 export interface Filters {
@@ -124,6 +125,11 @@ export function describeRegion(ds: Dataset, scope: RegionScope): string {
       return scope.zone;
     case 'sido':
       return ds.sidos.find((s) => s.code === scope.sido)?.name ?? scope.sido;
+    case 'city': {
+      const r = ds.regions.find((x) => x.city === scope.city);
+      const sido = r && ds.sidos.find((x) => x.code === r.sido);
+      return r ? `${sido?.name ?? ''} ${r.cityName}`.trim() : scope.city;
+    }
     case 'region': {
       const r = ds.regions[ds.regionIndex.get(scope.code) ?? -1];
       return r ? r.full : scope.code;
@@ -157,6 +163,8 @@ export function regionMask(ds: Dataset, scope: RegionScope): Uint8Array {
         return r.zone === scope.zone ? 1 : 0;
       case 'sido':
         return r.sido === scope.sido ? 1 : 0;
+      case 'city':
+        return r.city === scope.city ? 1 : 0;
       case 'region':
         return r.code === scope.code ? 1 : 0;
     }
