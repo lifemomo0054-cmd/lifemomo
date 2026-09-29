@@ -48,8 +48,8 @@ export const NAV: NavItem[] = [
     en: 'Origins',
     group: 'ANALYSIS',
     summary: '어디에서 오는지 — 거주지 시군구와 권역별 유입을 봅니다.',
-    planned: ['거주지 순위와 집중도', '권역·시도별 구성', '일반구를 시 단위로 합쳐 보기', '거주지별 성·연령 구성'],
-    ready: false,
+    planned: [],
+    ready: true,
   },
   {
     path: '/map',

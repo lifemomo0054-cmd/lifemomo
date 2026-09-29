@@ -885,3 +885,80 @@
   content: '▼ ';
   font-size: 9px;
 }
+
+/* ── 고를 수 있는 가로 막대 줄 ───────────────────────────────────────── */
+
+.barlist-row[data-selectable='true'] {
+  cursor: pointer;
+}
+
+.barlist-row[data-selected='true'] {
+  background: var(--wash);
+}
+
+.barlist-row[data-selected='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  background: var(--series-1);
+}
+
+.search-inline {
+  padding: 0 0 10px;
+  border-bottom: 0;
+}
+
+.search-inline .search-icon {
+  left: 11px;
+}
+
+.more-button {
+  margin-top: 10px;
+  width: 100%;
+  justify-content: center;
+}
+
+/* ── 선택한 거주지 상세 ─────────────────────────────────────────────── */
+
+.detail-body {
+  display: grid;
+  gap: 18px;
+}
+
+.mini-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--ink);
+}
+
+.mini-stats > div {
+  padding: 10px 10px 0 0;
+}
+
+.mini-stats dt {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.mini-stats dd {
+  margin-top: 2px;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-block {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 767px) {
+  .mini-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 8px;
+  }
+}

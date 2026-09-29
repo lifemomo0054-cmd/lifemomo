@@ -10,7 +10,8 @@ export type RegionScope =
   | { kind: 'zone'; zone: string }
   | { kind: 'sido'; sido: string }
   | { kind: 'city'; city: string } // 일반구를 합친 시 단위
-  | { kind: 'region'; code: string };
+  | { kind: 'region'; code: string }
+  | { kind: 'codes'; codes: string[]; label: string }; // 여러 시군구 (화면 안 상세 보기용)
 
 export interface Filters {
   start: string;
@@ -134,6 +135,8 @@ export function describeRegion(ds: Dataset, scope: RegionScope): string {
       const r = ds.regions[ds.regionIndex.get(scope.code) ?? -1];
       return r ? r.full : scope.code;
     }
+    case 'codes':
+      return scope.label;
   }
 }
 
@@ -167,6 +170,8 @@ export function regionMask(ds: Dataset, scope: RegionScope): Uint8Array {
         return r.city === scope.city ? 1 : 0;
       case 'region':
         return r.code === scope.code ? 1 : 0;
+      case 'codes':
+        return scope.codes.includes(r.code) ? 1 : 0;
     }
   });
 }

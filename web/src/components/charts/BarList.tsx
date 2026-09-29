@@ -16,9 +16,21 @@ export interface BarItem {
 }
 
 /** 가로 막대 목록. 이름이 길고 항목이 많은 순위·구성에 쓴다. */
-export function BarList({ items, label }: { items: BarItem[]; label: string }) {
+export function BarList({
+  items,
+  label,
+  selectedKey,
+  onSelect,
+  max: fixedMax,
+}: {
+  items: BarItem[];
+  label: string;
+  max?: number; // 막대 100% 기준 (없으면 가장 큰 값)
+  selectedKey?: string | null;
+  onSelect?: (key: string) => void; // 있으면 줄을 눌러 고를 수 있다
+}) {
   const [active, setActive] = useState<number | null>(null);
-  const max = Math.max(1, ...items.map((i) => i.value));
+  const max = fixedMax ?? Math.max(1, ...items.map((i) => i.value));
 
   return (
     <div className="barlist-wrap">
@@ -28,7 +40,22 @@ export function BarList({ items, label }: { items: BarItem[]; label: string }) {
             key={it.key}
             className="barlist-row"
             data-active={active === i}
+            data-selected={selectedKey === it.key}
+            data-selectable={onSelect ? true : undefined}
             tabIndex={0}
+            role={onSelect ? 'button' : undefined}
+            aria-pressed={onSelect ? selectedKey === it.key : undefined}
+            onClick={onSelect ? () => onSelect(it.key) : undefined}
+            onKeyDown={
+              onSelect
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onSelect(it.key);
+                    }
+                  }
+                : undefined
+            }
             onPointerEnter={() => setActive(i)}
             onPointerLeave={() => setActive(null)}
             onFocus={() => setActive(i)}
