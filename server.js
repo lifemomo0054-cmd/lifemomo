@@ -11,6 +11,8 @@
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { localMeters, insideRing, distanceToSegment, bounds, centerOf, polygonAreaM2, round6 } = require('./geo.js');
+const { createOnnuri } = require('./onnuri.js');
 
 const ROWS_PER_PAGE = 1000; // 상가정보 API가 한 번에 주는 최대 건수
 const MAX_RADIUS_M = 2000; // 상가정보 API가 허용하는 최대 반경(m)
@@ -21,6 +23,8 @@ const MAX_AREA_CIRCLES = 9; // 영역을 덮는 2km 원 개수 한도 (가로·�
 const AREA_CIRCLE_MARGIN_M = 15;
 const AREA_CONCURRENCY = 2;
 const MAX_BODY_BYTES = 200_000;
+const MAX_UPLOAD_BYTES = 300 * 1024 * 1024; // 온누리 가맹점 CSV 등
+const MAX_ONNURI_RADIUS_M = 20_000;
 const PAGE_CONCURRENCY = 3;
 const UPSTREAM_TIMEOUT_MS = 20_000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -80,6 +84,7 @@ function readConfigFromEnv(env = process.env) {
     maxPages: clampInt(env.MAX_PAGES, 1, 50, 10),
     sdscBaseUrl: env.SDSC_BASE_URL || 'https://apis.data.go.kr/B553077/api/open/sdsc2',
     nominatimUrl: env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org/search',
+    dataDir: env.DATA_DIR || path.join(__dirname, 'data'),
   };
 }
 
@@ -165,57 +170,6 @@ function toStore(item) {
   };
 }
 
-// ── 직접 그린 영역(다각형) 계산 ──────────────────────────────────────────
-// 영역이 몇 km 안쪽이라, 경위도를 영역 가운데 기준의 평면 좌표(미터)로 펴서 계산한다.
-function localMeters(origin) {
-  const kx = 111320 * Math.cos((origin.lat * Math.PI) / 180);
-  const ky = 110540;
-  return {
-    forward: ([lat, lng]) => [(lng - origin.lng) * kx, (lat - origin.lat) * ky],
-    inverse: ([x, y]) => ({ lat: origin.lat + y / ky, lng: origin.lng + x / kx }),
-  };
-}
-
-// ring: [[x, y], ...] (닫는 점 없이). 짝홀 규칙이라 선이 서로 꼬여 있어도 동작한다.
-function insideRing(x, y, ring) {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i];
-    const [xj, yj] = ring[j];
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
-
-function distanceToSegment(px, py, [ax, ay], [bx, by]) {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const t = dx || dy ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy))) : 0;
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-}
-
-// points: [[x, y], ...] (평면 좌표)
-function bounds(points) {
-  const xs = points.map((p) => p[0]);
-  const ys = points.map((p) => p[1]);
-  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
-}
-
-// polygon: [[lat, lng], ...] 의 경계 상자 가운데
-function centerOf(polygon) {
-  const lats = polygon.map((p) => p[0]);
-  const lngs = polygon.map((p) => p[1]);
-  return { lat: (Math.min(...lats) + Math.max(...lats)) / 2, lng: (Math.min(...lngs) + Math.max(...lngs)) / 2 };
-}
-
-// polygon: [[lat, lng], ...] → 면적(㎡)
-function polygonAreaM2(polygon) {
-  const pts = polygon.map(localMeters(centerOf(polygon)).forward);
-  let twice = 0;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) twice += pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1];
-  return Math.abs(twice) / 2;
-}
-
 // 상가정보 API는 원(반경)으로만 찾으므로, 다각형을 덮는 원들을 구한다.
 // 반경 2km 원 하나로 덮이면 그 원 하나, 아니면 영역을 칸으로 나눠 칸마다 2km 원을 놓는다.
 function coveringCircles(polygon) {
@@ -249,8 +203,6 @@ function coveringCircles(polygon) {
   return circles;
 }
 
-const round6 = (n) => Number(n.toFixed(6));
-
 async function mapLimit(list, limit, fn) {
   const out = new Array(list.length);
   let next = 0;
@@ -265,6 +217,19 @@ async function mapLimit(list, limit, fn) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// 화면이 보낸 꼭짓점 목록 [[lat, lng], ...] 을 검사해서 돌려준다.
+function parsePolygonPoints(raw) {
+  if (!Array.isArray(raw) || raw.length < 3 || raw.length > MAX_AREA_POINTS) {
+    throw new ApiError(400, `영역의 꼭짓점은 3개 이상 ${MAX_AREA_POINTS}개 이하로 찍어 주세요.`);
+  }
+  return raw.map((p) => {
+    const lat = Array.isArray(p) ? parseCoord(p[0], 32, 39.5) : null;
+    const lng = Array.isArray(p) ? parseCoord(p[1], 124, 132) : null;
+    if (lat == null || lng == null) throw new ApiError(400, '대한민국 안에서만 영역을 그릴 수 있습니다.');
+    return [round6(lat), round6(lng)];
+  });
+}
 
 function createServer(config) {
   const storeCache = new Map();
@@ -363,16 +328,7 @@ function createServer(config) {
   // 직접 그린 영역 안의 가게: 영역을 덮는 원(들)로 불러온 뒤 영역 안에 있는 것만 남긴다.
   async function handleArea(body) {
     requireKey();
-    const raw = body && body.points;
-    if (!Array.isArray(raw) || raw.length < 3 || raw.length > MAX_AREA_POINTS) {
-      throw new ApiError(400, `영역의 꼭짓점은 3개 이상 ${MAX_AREA_POINTS}개 이하로 찍어 주세요.`);
-    }
-    const polygon = raw.map((p) => {
-      const lat = Array.isArray(p) ? parseCoord(p[0], 32, 39.5) : null;
-      const lng = Array.isArray(p) ? parseCoord(p[1], 124, 132) : null;
-      if (lat == null || lng == null) throw new ApiError(400, '대한민국 안에서만 영역을 그릴 수 있습니다.');
-      return [round6(lat), round6(lng)];
-    });
+    const polygon = parsePolygonPoints(body && body.points);
     const circles = coveringCircles(polygon);
     if (circles.length > MAX_AREA_CIRCLES) {
       throw new ApiError(400, '영역이 너무 넓어요. 가로·세로 8km 안쪽으로, 또는 여러 대상지로 나눠 그려 주세요.');
@@ -399,18 +355,123 @@ function createServer(config) {
     };
   }
 
-  async function readJsonBody(req) {
+  async function readRawBody(req, limit, tooBigMessage) {
     const chunks = [];
     let size = 0;
     for await (const chunk of req) {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) throw new ApiError(413, '보낸 영역 정보가 너무 큽니다.');
+      if (size > limit) throw new ApiError(413, tooBigMessage);
       chunks.push(chunk);
     }
+    return Buffer.concat(chunks);
+  }
+
+  async function readJsonBody(req) {
+    const raw = await readRawBody(req, MAX_BODY_BYTES, '보낸 영역 정보가 너무 큽니다.');
     try {
-      return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      return JSON.parse(raw.toString('utf8'));
     } catch {
       throw new ApiError(400, '영역 정보를 읽지 못했습니다.');
+    }
+  }
+
+  // 다른 사이트가 몰래 이 서버를 부르지 못하게, 브라우저가 사전 확인을 요구하는 형식만 받는다.
+  function requireContentType(req, pattern, message) {
+    if (!pattern.test(req.headers['content-type'] || '')) throw new ApiError(415, message);
+  }
+
+  // ── 온누리상품권 가맹점 ──
+  // 시장 이름으로 위치 찾기: 사용자 주소 검색과 같은 줄에 서서 초당 1회를 지킨다.
+  function searchPlace(q, bbox) {
+    return throttleNominatim(async () => {
+      const params = new URLSearchParams({ q, format: 'jsonv2', countrycodes: 'kr', 'accept-language': 'ko', limit: '1' });
+      if (bbox) {
+        params.set('viewbox', bbox.join(','));
+        params.set('bounded', '1');
+      }
+      const res = await fetch(`${config.nominatimUrl}?${params}`, {
+        headers: { 'User-Agent': USER_AGENT },
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const [first] = await res.json();
+      if (!first) return null;
+      const lat = Number(first.lat);
+      const lng = Number(first.lon);
+      return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng, label: first.display_name || '' } : null;
+    });
+  }
+
+  const onnuri = createOnnuri({ dataDir: config.dataDir || path.join(__dirname, 'data'), searchPlace });
+  onnuri.load().catch((err) => console.error(`[온누리] 파일을 읽지 못했습니다: ${err.message}`));
+
+  async function handleOnnuri(req, res, url) {
+    await onnuri.ready();
+    const params = url.searchParams;
+    const route = `${req.method} ${url.pathname}`;
+    const needData = () => {
+      if (!onnuri.status().loaded) throw new ApiError(409, '온누리 가맹점 CSV 파일을 먼저 올려 주세요.');
+    };
+    switch (route) {
+      case 'GET /api/onnuri/status':
+        return sendJson(res, 200, onnuri.status());
+      case 'GET /api/onnuri/markets':
+        return sendJson(
+          res,
+          200,
+          onnuri.listMarkets({
+            located: ['yes', 'no'].includes(params.get('located')) ? params.get('located') : 'all',
+            q: (params.get('q') || '').slice(0, 50),
+            sido: params.get('sido') || '',
+            limit: clampInt(params.get('limit'), 1, 10000, 5000),
+          }),
+        );
+      case 'GET /api/onnuri/stores': {
+        needData();
+        const lat = parseCoord(params.get('lat'), 32, 39.5);
+        const lng = parseCoord(params.get('lng'), 124, 132);
+        if (lat == null || lng == null) throw new ApiError(400, '대한민국 안의 위치만 조회할 수 있습니다.');
+        const radius = clampInt(params.get('radius'), MIN_RADIUS_M, MAX_ONNURI_RADIUS_M, DEFAULT_RADIUS_M);
+        return sendJson(res, 200, onnuri.queryCircle({ lat: round6(lat), lng: round6(lng), radius }));
+      }
+      case 'POST /api/onnuri/stores/area': {
+        requireContentType(req, /^application\/json\b/i, 'JSON으로 보내 주세요.');
+        needData();
+        const body = await readJsonBody(req);
+        return sendJson(res, 200, onnuri.queryPolygon(parsePolygonPoints(body && body.points)));
+      }
+      case 'POST /api/onnuri/upload': {
+        requireContentType(req, /^application\/octet-stream\b/i, '파일 내용 그대로 보내 주세요.');
+        const buffer = await readRawBody(req, MAX_UPLOAD_BYTES, '파일이 너무 큽니다(300MB 넘음).');
+        const name = (params.get('name') || 'onnuri.csv').slice(0, 200);
+        try {
+          return sendJson(res, 200, await onnuri.saveUpload(buffer, name));
+        } catch (err) {
+          throw new ApiError(400, err.message);
+        }
+      }
+      case 'POST /api/onnuri/location': {
+        requireContentType(req, /^application\/json\b/i, 'JSON으로 보내 주세요.');
+        const body = (await readJsonBody(req)) || {};
+        if (!onnuri.has(body.id)) throw new ApiError(404, '그런 시장·상점가가 없습니다.');
+        if (body.clear) return sendJson(res, 200, onnuri.clearLocation(body.id));
+        const lat = parseCoord(body.lat, 32, 39.5);
+        const lng = parseCoord(body.lng, 124, 132);
+        if (lat == null || lng == null) throw new ApiError(400, '대한민국 안의 위치만 찍을 수 있습니다.');
+        return sendJson(res, 200, onnuri.setLocation(body.id, lat, lng));
+      }
+      case 'POST /api/onnuri/search': {
+        requireContentType(req, /^application\/json\b/i, 'JSON으로 보내 주세요.');
+        needData();
+        const body = (await readJsonBody(req)) || {};
+        const sido = typeof body.sido === 'string' ? body.sido : '';
+        if (body.action === 'start') return sendJson(res, 200, onnuri.startSearch(sido));
+        if (body.action === 'stop') return sendJson(res, 200, onnuri.stopSearch());
+        if (body.action === 'retry') return sendJson(res, 200, onnuri.retryNotFound(sido));
+        throw new ApiError(400, 'action은 start, stop, retry 중 하나여야 합니다.');
+      }
+      default:
+        return sendJson(res, 404, { error: '없는 API입니다.' });
     }
   }
 
@@ -480,9 +541,10 @@ function createServer(config) {
     res.end(data);
   }
 
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
+      if (url.pathname.startsWith('/api/onnuri/')) return await handleOnnuri(req, res, url);
       if (url.pathname === '/api/stores/area') {
         if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST 요청만 받습니다.' });
         // JSON만 받으면 다른 사이트가 몰래 이 주소를 불러 호출 한도를 쓰는 것도 막힌다(브라우저가 사전 확인을 요구).
@@ -513,6 +575,8 @@ function createServer(config) {
       if (!res.headersSent) sendJson(res, status, { error: known ? err.message : '서버 오류가 발생했습니다.' });
     }
   });
+  server.onnuri = onnuri;
+  return server;
 }
 
 function sendJson(res, status, body) {
@@ -598,6 +662,12 @@ async function main() {
     }
     throw err;
   });
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, async () => {
+      await server.onnuri.flush().catch(() => {}); // 찾은 시장 위치를 저장하고 끈다
+      process.exit(0);
+    });
+  }
   server.listen(port, host, () => {
     console.log(`반경 상가 지도: ${url}`);
     console.log('끄려면 이 창을 닫거나 Ctrl+C를 누르세요.');

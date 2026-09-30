@@ -260,7 +260,7 @@ code { font-size: 0.9em; background: rgba(11, 11, 11, 0.06); padding: 0 4px; bor
 .attr-table .attr-more { color: var(--muted); }
 
 .map-wrap.dropping::after {
-  content: "여기에 놓으면 SHP 파일을 지도에 겹쳐 보여 줘요";
+  content: "여기에 놓으세요 — SHP는 지도에 겹쳐 보이고, 온누리 CSV는 불러옵니다";
   position: absolute;
   inset: 12px;
   z-index: 1000;
@@ -351,6 +351,60 @@ code { font-size: 0.9em; background: rgba(11, 11, 11, 0.06); padding: 0 4px; bor
 .leaflet-tooltip.site-label.selected { border-color: var(--ink); color: var(--ink); }
 .leaflet-container.drawing,
 .leaflet-container.drawing .leaflet-interactive { cursor: crosshair !important; }
+
+/* ── 온누리 가맹점 ────────────────────────── */
+.onnuri-locations { display: grid; gap: 8px; }
+.onnuri-located { margin: 0; font-size: 13px; }
+.progress { height: 6px; border-radius: 3px; background: rgba(11, 11, 11, 0.08); overflow: hidden; }
+.progress span { display: block; height: 100%; width: 0; background: var(--accent); }
+.onnuri-search-row { display: flex; gap: 8px; }
+.onnuri-search-row select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+}
+.onnuri-search-row .export-button { flex: none; }
+.link-button {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  text-decoration: underline;
+}
+.onnuri-unlocated summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.onnuri-unlocated[open] { display: grid; gap: 8px; }
+.onnuri-unlocated input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+}
+.onnuri-unlocated-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 260px; overflow-y: auto; }
+.unlocated-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 2px; border-bottom: 1px solid var(--line); }
+.unlocated-text { display: grid; min-width: 0; }
+.unlocated-name { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.unlocated-meta { font-size: 12px; color: var(--muted); }
+.unlocated-item button, .popup-actions button {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+}
+.status.pin { padding: 8px 10px; border-radius: 8px; background: #fff8e1; border: 1px solid #f0d48a; color: var(--ink); font-weight: 600; }
+.popup-title { display: block; font-size: 14px; }
+.popup-items { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.popup-actions { display: flex; gap: 6px; margin-top: 8px; }
 
 /* ── 지도 위 요소 ─────────────────────────── */
 /* 지도 바탕은 흐리게 해서 가게 점이 잘 보이게 한다. */

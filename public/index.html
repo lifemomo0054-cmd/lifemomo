@@ -28,6 +28,45 @@
       <ul id="candidates" class="candidates" hidden></ul>
 
       <div class="field">
+        <span class="field-label" id="source-label">데이터</span>
+        <div id="source-options" class="segmented" role="radiogroup" aria-labelledby="source-label">
+          <button type="button" role="radio" data-source="sbiz" aria-checked="true">상가정보</button>
+          <button type="button" role="radio" data-source="onnuri" aria-checked="false">온누리 가맹점</button>
+        </div>
+      </div>
+
+      <section id="onnuri-panel" class="site-section" hidden aria-labelledby="onnuri-title">
+        <div class="overlay-top">
+          <h2 id="onnuri-title">온누리 가맹점 파일</h2>
+          <label class="file-button">
+            CSV 파일 올리기
+            <input id="onnuri-input" class="sr-only" type="file" multiple accept=".csv">
+          </label>
+        </div>
+        <p id="onnuri-file" class="hint"></p>
+        <p id="onnuri-upload-status" class="status" role="status" aria-live="polite" hidden></p>
+        <div id="onnuri-locations" class="onnuri-locations" hidden>
+          <p id="onnuri-located" class="onnuri-located"></p>
+          <div class="progress" aria-hidden="true"><span id="onnuri-progress"></span></div>
+          <div class="onnuri-search-row">
+            <label class="sr-only" for="onnuri-sido">자동으로 찾을 시도</label>
+            <select id="onnuri-sido"><option value="">전체 시도</option></select>
+            <button type="button" id="onnuri-search" class="export-button">위치 자동 찾기</button>
+          </div>
+          <p id="onnuri-search-status" class="hint" aria-live="polite"></p>
+          <button type="button" id="onnuri-retry" class="link-button" hidden></button>
+          <p id="onnuri-standard" class="hint"></p>
+          <details id="onnuri-unlocated" class="onnuri-unlocated">
+            <summary id="onnuri-unlocated-title">위치를 모르는 시장·상점가</summary>
+            <p class="hint">[지도에서 찍기]를 누른 뒤 지도에서 그 시장 자리를 누르면 저장돼요.</p>
+            <label class="sr-only" for="onnuri-unlocated-q">시장 이름으로 찾기</label>
+            <input id="onnuri-unlocated-q" type="search" placeholder="시장 이름으로 찾기" autocomplete="off">
+            <ul id="onnuri-unlocated-list" class="onnuri-unlocated-list"></ul>
+          </details>
+        </div>
+      </section>
+
+      <div class="field">
         <span class="field-label" id="mode-label">찾는 방법</span>
         <div id="mode-options" class="segmented" role="radiogroup" aria-labelledby="mode-label">
           <button type="button" role="radio" data-mode="radius" aria-checked="true">반경(원)</button>
@@ -83,7 +122,7 @@
 
       <section id="result" class="result" hidden aria-labelledby="total-label">
         <div class="summary">
-          <p id="total-label" class="total"><span id="total-count">0</span>개</p>
+          <p id="total-label" class="total"><span id="total-count">0</span><span id="total-unit">개</span></p>
           <p id="summary-meta" class="meta"></p>
         </div>
         <div class="export-row">
@@ -91,13 +130,10 @@
           <button type="button" id="export-shp" class="export-button">SHP로 저장</button>
         </div>
         <p id="truncated" class="notice notice-warn" hidden></p>
+        <p id="result-note" class="notice notice-warn" hidden></p>
 
-        <div class="levels" role="group" aria-label="업종 분류 단계">
-          <button type="button" data-level="large" aria-pressed="true">대분류</button>
-          <button type="button" data-level="medium" aria-pressed="false">중분류</button>
-          <button type="button" data-level="small" aria-pressed="false">소분류</button>
-        </div>
-        <p class="hint">업종을 누르면 지도에 그 업종만 표시합니다.</p>
+        <div id="level-tabs" class="levels" role="group" aria-label="분류 단계"></div>
+        <p id="level-hint" class="hint">업종을 누르면 지도에 그 업종만 표시합니다.</p>
         <div id="filter-chip" class="filter-chip" hidden>
           <span id="filter-label"></span>
           <button type="button" id="clear-filter">전체 보기</button>

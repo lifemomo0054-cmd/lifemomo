@@ -29,9 +29,49 @@ const LEVELS = {
     label: (s) => s.small,
     parent: (s) => s.medium,
   },
+  // 온누리 가맹점: 취급품목은 적힌 그대로 센다.
+  item: {
+    key: (s) => s.item || '(미기재)',
+    label: (s) => s.item || '(미기재)',
+    parent: () => '',
+  },
+  market: {
+    key: (s) => s.marketId,
+    label: (s) => s.market,
+    parent: (s) => s.sido,
+  },
 };
 
+// 데이터 종류마다 다른 것들. 반경·영역 찾기, 대상지, 목록, 저장 흐름은 같이 쓴다.
+const SOURCES = {
+  sbiz: {
+    unit: '가게',
+    unitObj: '가게를',
+    countUnit: '개',
+    filePrefix: '상가',
+    radiusUrl: '/api/stores',
+    areaUrl: '/api/stores/area',
+    levels: [['large', '대분류'], ['medium', '중분류'], ['small', '소분류']],
+    levelHint: '업종을 누르면 지도에 그 업종만 표시합니다.',
+  },
+  onnuri: {
+    unit: '가맹점',
+    unitObj: '가맹점을',
+    countUnit: '곳',
+    filePrefix: '온누리가맹점',
+    radiusUrl: '/api/onnuri/stores',
+    areaUrl: '/api/onnuri/stores/area',
+    levels: [['item', '취급품목'], ['market', '시장·상점가']],
+    levelHint: '품목이나 시장을 누르면 지도에 그 가맹점이 있는 시장만 표시합니다.',
+  },
+};
+const MARKET_COLOR = '#2a78d6';
+const LOC_SOURCE_LABEL = { manual: '직접 찍은 위치', standard: '전통시장 표준데이터', search: '주소 검색으로 찾음(확인 필요)' };
+const src = () => SOURCES[state.source];
+
 const state = {
+  source: 'sbiz', // 'sbiz' = 상가(상권)정보 API, 'onnuri' = 온누리상품권 가맹점 파일
+  generation: 0, // 데이터 종류를 바꾸면 늘어난다. 늦게 온 예전 응답은 버린다.
   mode: 'radius', // 'radius' = 반경(원)으로 찾기, 'area' = 직접 그린 대상지로 찾기
   center: null, // L.LatLng
   radius: 500,
@@ -44,6 +84,7 @@ const state = {
   request: null, // 진행 중인 조회의 AbortController
 };
 
+let pinning = null; // 온누리: 지도에서 위치를 찍는 중인 시장 { market }
 const $ = (id) => document.getElementById(id);
 const numberFormat = new Intl.NumberFormat('ko-KR');
 
@@ -57,20 +98,33 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 const radiusLayer = L.layerGroup().addTo(map); // 반경 원 + 가운데 표시
 const siteLayer = L.layerGroup(); // 직접 그린 대상지들
+const marketBaseLayer = L.layerGroup(); // 온누리: 위치를 아는 모든 시장(흐린 점)
 const storeLayer = L.layerGroup().addTo(map);
 const drawLayer = L.layerGroup().addTo(map); // 그리는 중인 선
 
 const legend = L.control({ position: 'bottomleft' });
-legend.onAdd = () => {
-  const box = L.DomUtil.create('div', 'legend');
-  for (const { label, color } of [...LARGE_COLORS, { label: '그 밖의 업종', color: OTHER_COLOR }]) {
-    const item = el('span', 'legend-item', label);
-    item.prepend(swatch(color));
-    box.append(item);
-  }
-  return box;
-};
+legend.onAdd = () => L.DomUtil.create('div', 'legend');
 legend.addTo(map);
+
+function renderLegend() {
+  const items =
+    state.source === 'onnuri'
+      ? [
+          { label: '시장·상점가 (클수록 가맹점 많음)', color: MARKET_COLOR },
+          { label: '위치만 아는 다른 시장', color: OTHER_COLOR },
+        ]
+      : [...LARGE_COLORS, { label: '그 밖의 업종', color: OTHER_COLOR }];
+  legend.getContainer().replaceChildren(
+    ...items.map(({ label, color }) => {
+      const item = el('span', 'legend-item', label);
+      item.prepend(swatch(color));
+      return item;
+    }),
+  );
+}
+
+// 그리기·위치 찍기 중에는 점과 영역이 클릭을 가로채지 않게 한다.
+const mapBusy = () => drawing.active || Boolean(pinning);
 
 // 가게 팝업이 열린 상태에서 지도를 누르면 팝업만 닫고 새로 조회하지 않는다.
 // (preclick 은 팝업이 닫히기 전에 오고, click 은 같은 흐름에서 바로 뒤따른다.)
@@ -85,6 +139,10 @@ map.on('preclick', () => {
 });
 map.on('click', (e) => {
   if (ignoreClick) return;
+  if (pinning) {
+    savePin(e.latlng);
+    return;
+  }
   if (drawing.active) {
     addDrawPoint(e.latlng);
     return;
@@ -99,6 +157,11 @@ map.on('click', (e) => {
 
 // ── 조회 ────────────────────────────────────────────────────────────────
 async function searchAt(latlng, { fit }) {
+  if (state.source === 'onnuri' && !onnuri.status?.loaded) {
+    setStatus('먼저 위 [온누리 가맹점 파일]에서 CSV 파일을 올려 주세요.', 'error');
+    return;
+  }
+  const generation = state.generation;
   state.center = L.latLng(latlng);
   state.data = null;
   state.radiusData = null;
@@ -109,7 +172,7 @@ async function searchAt(latlng, { fit }) {
   state.request?.abort();
   const controller = new AbortController();
   state.request = controller;
-  setStatus(`반경 ${formatRadius(state.radius)} 안의 가게를 불러오는 중…`, 'loading');
+  setStatus(`반경 ${formatRadius(state.radius)} 안의 ${src().unitObj} 불러오는 중…`, 'loading');
 
   const params = new URLSearchParams({
     lat: state.center.lat.toFixed(6),
@@ -117,8 +180,9 @@ async function searchAt(latlng, { fit }) {
     radius: String(state.radius),
   });
   try {
-    const data = await requestJson(`/api/stores?${params}`, { signal: controller.signal });
-    for (const s of data.stores) s.color = colorForLarge(s.large);
+    const data = await requestJson(`${src().radiusUrl}?${params}`, { signal: controller.signal });
+    if (generation !== state.generation) return;
+    prepareData(data);
     state.radiusData = data;
     if (state.mode === 'radius') state.data = data;
     setStatus('');
@@ -152,13 +216,35 @@ function drawRadius(fit) {
   restackLayers();
 
   const bounds = circle.getBounds();
-  if (fit === 'always' || !map.getBounds().contains(bounds)) {
+  if (fit === 'always' || (fit !== 'keep' && !map.getBounds().contains(bounds))) {
     map.fitBounds(bounds, { padding: [24, 24] });
   }
 }
 
+function prepareData(data) {
+  if (data.source !== 'onnuri') for (const s of data.stores) s.color = colorForLarge(s.large);
+}
+
+// 데이터가 바뀌었을 때(종류 바꿈, 시장 위치 저장 등) 지금 보고 있던 범위로 다시 찾는다.
+function rerunQuery() {
+  if (state.mode === 'radius') {
+    if (state.center) searchAt(state.center, { fit: 'keep' });
+    return;
+  }
+  for (const site of state.sites) {
+    site.data = null;
+    site.error = '';
+  }
+  state.data = null;
+  render();
+  const site = currentSite();
+  if (site) loadSite(site);
+  renderSiteList();
+}
+
 // 그리는 순서(아래→위): 내 SHP → 대상지 → 반경 원 → 가게 점. 점이 늘 맨 위에 있어야 누를 수 있다.
 function restackLayers() {
+  marketBaseLayer.eachLayer((l) => l.bringToBack && l.bringToBack());
   radiusLayer.eachLayer((l) => l.bringToBack && l.bringToBack());
   siteLayer.eachLayer((l) => l.bringToBack && l.bringToBack());
   for (const overlay of overlays) overlay.layer?.bringToBack();
@@ -238,6 +324,10 @@ function render() {
 }
 
 function renderStores() {
+  if (state.source === 'onnuri') {
+    renderMarkets();
+    return;
+  }
   storeLayer.clearLayers();
   if (!state.data) return;
   const levelKey = LEVELS[state.level].key;
@@ -272,7 +362,7 @@ function renderStores() {
       fillColor: selected && s.color === OTHER_COLOR ? SELECTED_OTHER_COLOR : s.color,
       fillOpacity: 0.95,
       bubblingMouseEvents: false,
-      interactive: !drawing.active, // 그리는 중에는 점을 눌러도 꼭짓점이 찍히게
+      interactive: !mapBusy(), // 그리는 중에는 점을 눌러도 꼭짓점이 찍히게
     });
     // Leaflet은 문자열을 HTML로 넣으므로, 가게 이름은 항상 텍스트 노드로 넘긴다.
     const tooltip = here.length > 1 ? `${s.name} 외 ${here.length - 1}곳` : s.name;
@@ -310,23 +400,51 @@ function renderStats() {
   if (!data) return;
 
   const stores = data.stores;
+  const onnuriData = data.source === 'onnuri';
   $('total-count').textContent = numberFormat.format(stores.length);
+  $('total-unit').textContent = src().countUnit;
   const scope = scopeInfo();
-  $('summary-meta').textContent = [scope.meta, formatYearMonth(data.stdrYm)].filter(Boolean).join(' · ');
+  $('summary-meta').textContent = (
+    onnuriData
+      ? [scope.meta, `시장·상점가 ${numberFormat.format(data.markets.length)}곳`, formatDate(data.dataDate)]
+      : [scope.meta, formatYearMonth(data.stdrYm)]
+  )
+    .filter(Boolean)
+    .join(' · ');
 
   const truncated = $('truncated');
   truncated.hidden = !data.truncated;
   truncated.textContent = !data.truncated
     ? ''
-    : data.kind === 'area'
+    : onnuriData
+      ? `가맹점이 너무 많아서 ${numberFormat.format(stores.length)}곳까지만 불러왔어요. 범위를 줄이면 전부 볼 수 있어요.`
+      : data.kind === 'area'
       ? `이 대상지는 가게가 많아서 일부(${numberFormat.format(stores.length)}개)만 불러왔어요. ` +
         '업종별 개수도 불러온 가게 기준입니다. 대상지를 작게 나눠 그리면 전부 볼 수 있어요.'
       : `이 반경에는 가게가 ${numberFormat.format(data.totalCount)}개 있지만 ${numberFormat.format(stores.length)}개만 불러왔어요. ` +
         '업종별 개수도 불러온 가게 기준입니다. 반경을 줄이면 전부 볼 수 있어요.';
 
-  for (const button of document.querySelectorAll('[data-level]')) {
-    button.setAttribute('aria-pressed', String(button.dataset.level === state.level));
-  }
+  const unlocated = onnuriData && onnuri.status ? onnuri.status.markets - onnuri.status.located : 0;
+  $('result-note').hidden = !unlocated;
+  $('result-note').textContent = unlocated
+    ? `위치를 모르는 시장·상점가 ${numberFormat.format(unlocated)}곳(가맹점 ${numberFormat.format(onnuri.status.unlocatedStores)}곳)은 ` +
+      '지도에 없어서 여기에 세지 않았어요. 위 [온누리 가맹점 파일]에서 위치를 채우면 함께 셀 수 있어요.'
+    : '';
+
+  $('level-tabs').replaceChildren(
+    ...src().levels.map(([id, label]) => {
+      const tab = el('button', null, label);
+      tab.type = 'button';
+      tab.setAttribute('aria-pressed', String(id === state.level));
+      tab.addEventListener('click', () => {
+        state.level = id;
+        state.selectedKey = null;
+        render();
+      });
+      return tab;
+    }),
+  );
+  $('level-hint').textContent = src().levelHint;
 
   const level = LEVELS[state.level];
   const groups = new Map();
@@ -334,7 +452,7 @@ function renderStats() {
     const key = level.key(s);
     let group = groups.get(key);
     if (!group) {
-      group = { key, label: level.label(s) || '미분류', parent: level.parent(s), color: s.color, count: 0 };
+      group = { key, label: level.label(s) || '미분류', parent: level.parent(s), color: onnuriData ? MARKET_COLOR : s.color, count: 0 };
       groups.set(key, group);
     }
     group.count++;
@@ -346,16 +464,23 @@ function renderStats() {
   $('filter-label').textContent = selectedRow ? `‘${selectedRow.label}’ ${numberFormat.format(selectedRow.count)}개만 보는 중` : '';
 
   $('export-xlsx').disabled = stores.length === 0;
-  $('export-xlsx').textContent = `엑셀로 저장 (${numberFormat.format(stores.length)}개)`;
-  const exportCount = numberFormat.format(visibleStores().length);
+  $('export-xlsx').textContent = `엑셀로 저장 (${numberFormat.format(stores.length)}${src().countUnit})`;
   $('export-shp').disabled = stores.length === 0;
-  $('export-shp').textContent = selectedRow
-    ? `‘${selectedRow.label}’만 SHP로 저장 (${exportCount}개)`
-    : `SHP로 저장 (${exportCount}개)`;
+  if (onnuriData) {
+    const marketCount = numberFormat.format(new Set(visibleStores().map((s) => s.marketId)).size);
+    $('export-shp').textContent = selectedRow ? `‘${selectedRow.label}’ 시장 SHP로 저장 (${marketCount}곳)` : `시장 위치 SHP로 저장 (${marketCount}곳)`;
+  } else {
+    const exportCount = numberFormat.format(visibleStores().length);
+    $('export-shp').textContent = selectedRow
+      ? `‘${selectedRow.label}’만 SHP로 저장 (${exportCount}개)`
+      : `SHP로 저장 (${exportCount}개)`;
+  }
 
   const list = $('category-list');
   if (!rows.length) {
-    list.replaceChildren(el('li', 'empty', `${scope.where} 안에는 등록된 가게가 없어요.`));
+    list.replaceChildren(
+      el('li', 'empty', onnuriData ? `${scope.where} 안에는 위치를 아는 시장·상점가가 없어요.` : `${scope.where} 안에는 등록된 가게가 없어요.`),
+    );
     return;
   }
   const max = rows[0].count;
@@ -428,6 +553,26 @@ function formatShare(count, total) {
   return pct < 1 ? '1% 미만' : `${Math.round(pct)}%`;
 }
 
+function formatDate(ymd) {
+  const m = String(ymd || '').match(/^(\d{4})(\d{2})(\d{2})$/);
+  return m ? `${m[1]}년 ${Number(m[2])}월 ${Number(m[3])}일 기준` : '';
+}
+
+function formatDuration(seconds) {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))}초`;
+  if (seconds < 3600) return `${Math.ceil(seconds / 60)}분`;
+  return `${Math.floor(seconds / 3600)}시간 ${Math.ceil((seconds % 3600) / 60)}분`;
+}
+
+function countBy(list, keyOf) {
+  const counts = new Map();
+  for (const item of list) {
+    const key = keyOf(item);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
 function formatYearMonth(ym) {
   const m = String(ym || '').match(/^(\d{4})(\d{2})/);
   return m ? `${m[1]}년 ${Number(m[2])}월 기준` : '';
@@ -472,27 +617,48 @@ function visibleStores() {
   return state.selectedKey ? state.data.stores.filter((s) => levelKey(s) === state.selectedKey) : state.data.stores;
 }
 
+// 온누리: 가게 좌표가 없으므로 시장·상점가 위치를 점으로 저장한다.
+const MARKET_SHP_FIELDS = [
+  { name: 'MRKT_NM', type: 'C', length: 150, from: (m) => m.name },
+  { name: 'SIDO', type: 'C', length: 30, from: (m) => m.sido },
+  { name: 'STORE_CNT', type: 'N', length: 10, from: (m) => m.shown },
+  { name: 'ALL_CNT', type: 'N', length: 10, from: (m) => m.count },
+  { name: 'LOC_SRC', type: 'C', length: 60, from: (m) => LOC_SOURCE_LABEL[m.locSource] || '' },
+  { name: 'LOC_NOTE', type: 'C', length: 254, from: (m) => m.locLabel },
+  { name: 'LON', type: 'N', length: 14, decimals: 8, from: (m) => m.lng },
+  { name: 'LAT', type: 'N', length: 13, decimals: 8, from: (m) => m.lat },
+];
+
+function shpPoints() {
+  if (state.source === 'onnuri') {
+    const counts = countBy(visibleStores(), (s) => s.marketId);
+    const markets = state.data.markets.filter((m) => counts.get(m.id)).map((m) => ({ ...m, shown: counts.get(m.id) }));
+    return { base: 'markets', fields: MARKET_SHP_FIELDS, items: markets, x: (m) => m.lng, y: (m) => m.lat };
+  }
+  return { base: 'stores', fields: SHP_FIELDS, items: visibleStores(), x: (s) => s.lng, y: (s) => s.lat };
+}
+
 async function exportShp() {
-  const stores = visibleStores();
-  if (!stores.length) return;
+  const { base, fields, items, x, y } = shpPoints();
+  if (!items.length) return;
   const button = $('export-shp');
   button.disabled = true;
   try {
     const set = Shapefile.writePointShapefile(
-      stores.map((s) => ({
-        x: s.lng,
-        y: s.lat,
-        attributes: Object.fromEntries(SHP_FIELDS.map((f) => [f.name, f.from(s)])),
+      items.map((item) => ({
+        x: x(item),
+        y: y(item),
+        attributes: Object.fromEntries(fields.map((f) => [f.name, f.from(item)])),
       })),
-      SHP_FIELDS,
+      fields,
     );
     const text = new TextEncoder();
     const zipBytes = await Shapefile.zip([
-      { name: 'stores.shp', data: set.shp },
-      { name: 'stores.shx', data: set.shx },
-      { name: 'stores.dbf', data: set.dbf },
-      { name: 'stores.prj', data: text.encode(Shapefile.WGS84_PRJ) },
-      { name: 'stores.cpg', data: text.encode('UTF-8') },
+      { name: `${base}.shp`, data: set.shp },
+      { name: `${base}.shx`, data: set.shx },
+      { name: `${base}.dbf`, data: set.dbf },
+      { name: `${base}.prj`, data: text.encode(Shapefile.WGS84_PRJ) },
+      { name: `${base}.cpg`, data: text.encode('UTF-8') },
     ]);
     download(new Blob([zipBytes], { type: 'application/zip' }), exportFileName());
   } catch (err) {
@@ -509,7 +675,7 @@ function exportFileName() {
 
 // 예: 상가_김천시 자산동_대분류별_반경300m_20260923.xlsx, 상가_역앞 상권_대분류별_20260923.xlsx
 function fileName(what, extension) {
-  return datedFileName(['상가', ...scopeInfo().fileParts(what)], extension);
+  return datedFileName([src().filePrefix, ...scopeInfo().fileParts(what)], extension);
 }
 
 function datedFileName(parts, extension) {
@@ -545,6 +711,11 @@ function scopeInfo() {
 
 // 불러온 가게들이 가장 많이 속한 행정동 (예: "김천시 자산동")
 function placeName() {
+  if (state.data && state.data.source === 'onnuri') {
+    const markets = [...state.data.markets].sort((a, b) => b.count - a.count);
+    if (!markets.length) return '';
+    return markets.length > 1 ? `${markets[0].name} 외 ${markets.length - 1}곳` : markets[0].name;
+  }
   const counts = new Map();
   for (const s of state.data.stores) {
     const place = [s.sigungu, s.adong].filter(Boolean).join(' ');
@@ -561,6 +732,10 @@ async function exportExcel() {
   const button = $('export-xlsx');
   button.disabled = true;
   try {
+    if (data.source === 'onnuri') {
+      await exportOnnuriExcel(data);
+      return;
+    }
     const groups = new Map();
     for (const s of data.stores) {
       const label = s.large || '미분류';
@@ -606,6 +781,69 @@ async function exportExcel() {
   } finally {
     button.disabled = false;
   }
+}
+
+// 온누리: 요약 + 취급품목별(적힌 그대로) + 시장별 + 전체 가맹점 목록
+async function exportOnnuriExcel(data) {
+  const stores = data.stores;
+  const total = stores.length;
+  const itemCounts = [...countBy(stores, (s) => s.item || '(미기재)')].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko'));
+  const marketCounts = countBy(stores, (s) => s.marketId);
+  const markets = [...data.markets].sort((a, b) => (marketCounts.get(b.id) || 0) - (marketCounts.get(a.id) || 0));
+  const st = onnuri.status || {};
+  const unlocated = st.markets ? st.markets - st.located : 0;
+
+  const summary = [
+    ['항목', '내용'],
+    ...scopeInfo().summary,
+    ['데이터 파일', st.fileName || '-'],
+    ['데이터 기준', formatDate(data.dataDate) || '-'],
+    ['시장·상점가 수', data.markets.length],
+    ['가맹점 수', total],
+    ['디지털형 가맹', stores.filter((s) => s.digital).length],
+  ];
+  if (unlocated) {
+    summary.push(['주의', `위치를 모르는 시장·상점가 ${unlocated}곳(가맹점 ${st.unlocatedStores}곳)은 지도에 없어 포함되지 않았습니다.`]);
+  }
+  if (data.truncated) summary.push(['주의', `가맹점이 많아 ${total}곳까지만 담았습니다. 범위를 줄이면 전부 받을 수 있습니다.`]);
+
+  const byMarketThenName = (a, b) =>
+    (marketCounts.get(b.marketId) || 0) - (marketCounts.get(a.marketId) || 0) ||
+    a.market.localeCompare(b.market, 'ko') ||
+    a.name.localeCompare(b.name, 'ko');
+  const yn = (v) => (v ? 'Y' : 'N');
+
+  const bytes = await Xlsx.build([
+    { name: '요약', rows: summary, widths: [16, 64], header: true },
+    {
+      name: '취급품목별',
+      rows: [['취급품목', '가맹점 수', '비율'], ...itemCounts.map(([item, n]) => [item, n, { value: n / total, style: 'percent' }])],
+      widths: [32, 10, 8],
+      header: true,
+      autoFilter: true,
+    },
+    {
+      name: '시장별',
+      rows: [
+        ['시도', '시장·상점가', '가맹점 수', '위치 출처'],
+        ...markets.map((m) => [m.sido, m.name, marketCounts.get(m.id) || 0, LOC_SOURCE_LABEL[m.locSource] || '']),
+      ],
+      widths: [8, 34, 10, 26],
+      header: true,
+      autoFilter: true,
+    },
+    {
+      name: '전체',
+      rows: [
+        ['가맹점명', '소속 시장·상점가', '소재지', '취급품목', '지류형', '디지털형', '가맹 등록년도'],
+        ...[...stores].sort(byMarketThenName).map((s) => [s.name, s.market, s.sido, s.item, yn(s.paper), yn(s.digital), s.year]),
+      ],
+      widths: [28, 32, 8, 26, 8, 8, 12],
+      header: true,
+      autoFilter: true,
+    },
+  ]);
+  download(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName('품목별', 'xlsx'));
 }
 
 function download(blob, fileName) {
@@ -835,6 +1073,353 @@ function setOverlayStatus(message, kind = '') {
   status.hidden = !message;
 }
 
+// ── 온누리 가맹점: 시장·상점가 점 ──────────────────────────────────────
+// 가맹점 파일에는 가게 위치가 없어서, 소속 시장·상점가마다 점 하나로 보여 준다(점이 클수록 가맹점이 많다).
+const marketRadius = (n) => Math.min(22, 5 + Math.sqrt(n) * 0.9);
+
+function renderMarkets() {
+  storeLayer.clearLayers();
+  renderMarketBase();
+  const data = state.data;
+  if (!data || data.source !== 'onnuri') return;
+  const levelKey = LEVELS[state.level].key;
+  const selected = state.selectedKey;
+  const shown = countBy(selected ? data.stores.filter((s) => levelKey(s) === selected) : data.stores, (s) => s.marketId);
+  // 작은 점을 먼저 그려서 큰 점 아래에 깔리게
+  for (const m of [...data.markets].sort((a, b) => (shown.get(a.id) || 0) - (shown.get(b.id) || 0))) {
+    const n = shown.get(m.id) || 0;
+    if (!n) {
+      storeLayer.addLayer(
+        L.circleMarker([m.lat, m.lng], { radius: 3, stroke: false, fillColor: OTHER_COLOR, fillOpacity: 0.35, interactive: false }),
+      );
+      continue;
+    }
+    const marker = L.circleMarker([m.lat, m.lng], {
+      radius: marketRadius(n),
+      color: '#ffffff',
+      weight: 1.5,
+      fillColor: MARKET_COLOR,
+      fillOpacity: 0.85,
+      bubblingMouseEvents: false,
+      interactive: !mapBusy(),
+    });
+    marker.bindTooltip(() => el('span', null, `${m.name} · 가맹점 ${numberFormat.format(n)}곳`), { direction: 'top', offset: [0, -6] });
+    marker.bindPopup(() => marketPopup(m, selected ? n : null), { maxWidth: 320 });
+    storeLayer.addLayer(marker);
+  }
+}
+
+// 위치를 아는 모든 시장(흐린 회색 점). 지금 결과에 든 시장은 파란 점으로 따로 그린다.
+function renderMarketBase() {
+  marketBaseLayer.clearLayers();
+  if (state.source !== 'onnuri') return;
+  const inResult = new Set(state.data && state.data.source === 'onnuri' ? state.data.markets.map((m) => m.id) : []);
+  for (const m of onnuri.markets) {
+    if (inResult.has(m.id)) continue;
+    const dot = L.circleMarker([m.lat, m.lng], {
+      radius: 3.5,
+      stroke: false,
+      fillColor: OTHER_COLOR,
+      fillOpacity: 0.6,
+      bubblingMouseEvents: false,
+      interactive: !mapBusy(),
+    });
+    dot.bindTooltip(() => el('span', null, `${m.name} · 가맹점 ${numberFormat.format(m.count)}곳`), { direction: 'top', offset: [0, -4] });
+    dot.bindPopup(() => marketPopup(m, null), { maxWidth: 320 });
+    marketBaseLayer.addLayer(dot);
+  }
+  restackLayers();
+}
+
+function marketPopup(m, shownCount) {
+  const root = el('div', 'popup');
+  root.append(el('strong', 'popup-title', m.name));
+  const counts = `${m.sido} · 가맹점 ${numberFormat.format(m.count)}곳`;
+  root.append(el('div', 'popup-count', shownCount != null ? `${counts} (골라 본 것 ${numberFormat.format(shownCount)}곳)` : counts));
+
+  // 지금 결과에 이 시장 가맹점이 있으면 많은 품목 몇 개를 보여 준다.
+  if (state.data && state.data.source === 'onnuri') {
+    const items = [...countBy(state.data.stores.filter((s) => s.marketId === m.id), (s) => s.item || '(미기재)')].sort((a, b) => b[1] - a[1]);
+    if (items.length) {
+      const top = items.slice(0, 6).map(([item, n]) => `${item} ${n}`).join(' · ');
+      root.append(el('div', 'popup-items', `많은 품목: ${top}${items.length > 6 ? ' …' : ''}`));
+    }
+  }
+  const where = [LOC_SOURCE_LABEL[m.locSource] || '', m.locSource !== 'manual' ? m.locLabel : ''].filter(Boolean).join(' — ');
+  root.append(el('div', 'popup-address', `위치: ${where}`));
+
+  const actions = el('div', 'popup-actions');
+  const fix = el('button', null, '위치 고치기');
+  fix.type = 'button';
+  fix.addEventListener('click', () => startPinning(m));
+  actions.append(fix);
+  if (m.locSource === 'manual') {
+    const clear = el('button', null, '찍은 위치 지우기');
+    clear.type = 'button';
+    clear.addEventListener('click', () => clearPin(m));
+    actions.append(clear);
+  }
+  root.append(actions);
+  return root;
+}
+
+// ── 온누리: 시장 위치 직접 찍기 ────────────────────────────────────────
+function startPinning(market) {
+  if (drawing.active) stopDrawing();
+  map.closePopup();
+  pinning = { market };
+  map.getContainer().classList.add('drawing');
+  setStatus(`‘${market.name}’(${market.sido}) 자리를 지도에서 누르세요. 그만두려면 Esc를 누르세요.`, 'pin');
+  render();
+  renderSites();
+}
+
+function stopPinning() {
+  pinning = null;
+  if (!drawing.active) map.getContainer().classList.remove('drawing');
+  render();
+  renderSites();
+}
+
+async function savePin(latlng) {
+  const { market } = pinning;
+  stopPinning();
+  try {
+    await requestJson('/api/onnuri/location', { body: { id: market.id, lat: latlng.lat, lng: latlng.lng } });
+    setStatus(`‘${market.name}’ 위치를 저장했어요.`);
+  } catch (err) {
+    setStatus(err.message, 'error');
+    return;
+  }
+  await refreshOnnuri();
+  if ($('onnuri-unlocated').open) loadUnlocated();
+  rerunQuery();
+}
+
+async function clearPin(market) {
+  map.closePopup();
+  try {
+    await requestJson('/api/onnuri/location', { body: { id: market.id, clear: true } });
+    setStatus(`‘${market.name}’의 직접 찍은 위치를 지웠어요.`);
+  } catch (err) {
+    setStatus(err.message, 'error');
+    return;
+  }
+  await refreshOnnuri();
+  rerunQuery();
+}
+
+// ── 온누리: 파일·위치 현황 ──────────────────────────────────────────────
+const onnuri = { status: null, markets: [], poll: null, marketsAt: 0, lastLocated: -1 };
+
+async function refreshOnnuri() {
+  try {
+    onnuri.status = await requestJson('/api/onnuri/status');
+    if (onnuri.status.loaded) {
+      onnuri.markets = await requestJson('/api/onnuri/markets?located=yes');
+      onnuri.marketsAt = Date.now();
+      onnuri.lastLocated = onnuri.status.located;
+    }
+  } catch (err) {
+    setOnnuriUploadStatus(err.message, 'error');
+    return;
+  }
+  renderOnnuriPanel();
+  renderMarketBase();
+  pollOnnuri();
+}
+
+// 위치 자동 찾기가 도는 동안 2초마다 진행 상황을 보고, 새로 찾은 시장을 가끔 지도에 올린다.
+function pollOnnuri() {
+  clearTimeout(onnuri.poll);
+  if (state.source !== 'onnuri' || !onnuri.status?.search.running) return;
+  onnuri.poll = setTimeout(async () => {
+    let st;
+    try {
+      st = await requestJson('/api/onnuri/status');
+    } catch {
+      pollOnnuri();
+      return;
+    }
+    onnuri.status = st;
+    if (!st.search.running) {
+      await refreshOnnuri(); // 끝났다: 지도와 결과를 새로
+      rerunQuery();
+      return;
+    }
+    if (st.located !== onnuri.lastLocated && Date.now() - onnuri.marketsAt > 8000) {
+      onnuri.markets = await requestJson('/api/onnuri/markets?located=yes').catch(() => onnuri.markets);
+      onnuri.marketsAt = Date.now();
+      onnuri.lastLocated = st.located;
+      renderMarketBase();
+    }
+    renderOnnuriPanel();
+    pollOnnuri();
+  }, 2000);
+}
+
+function renderOnnuriPanel() {
+  const st = onnuri.status;
+  if (!st) return;
+  $('onnuri-file').textContent = st.loaded
+    ? [st.fileName || '가맹점 파일', formatDate(st.dataDate), `가맹점 ${numberFormat.format(st.stores)}곳`, `시장·상점가 ${numberFormat.format(st.markets)}곳`]
+        .filter(Boolean)
+        .join(' · ')
+    : '공공데이터포털에서 받은 ‘온누리상품권 가맹점’ CSV 파일을 올려 주세요. 한 번 올리면 저장돼서 다음부터는 바로 씁니다.';
+  if (st.error) setOnnuriUploadStatus(st.error, 'error');
+  $('onnuri-locations').hidden = !st.loaded;
+  if (!st.loaded) return;
+
+  const share = st.markets ? st.located / st.markets : 0;
+  $('onnuri-located').textContent =
+    `위치를 아는 시장·상점가 ${numberFormat.format(st.located)} / ${numberFormat.format(st.markets)}곳 (${Math.round(share * 100)}%) — ` +
+    `표준데이터 ${numberFormat.format(st.bySource.standard)} · 자동 검색 ${numberFormat.format(st.bySource.search)} · 직접 찍음 ${numberFormat.format(st.bySource.manual)}`;
+  $('onnuri-progress').style.width = `${share * 100}%`;
+
+  const select = $('onnuri-sido');
+  if (select.options.length !== st.sidos.length + 1) {
+    const current = select.value;
+    select.replaceChildren(el('option', null, '전체 시도'), ...st.sidos.map((sido) => el('option', null, sido)));
+    select.options[0].value = '';
+    select.value = current;
+  }
+  const search = st.search;
+  select.disabled = search.running;
+  $('onnuri-search').textContent = search.running ? '멈추기' : '위치 자동 찾기';
+  $('onnuri-search-status').textContent = search.running
+    ? `${search.sido || '전체'} 찾는 중 ${numberFormat.format(search.done)} / ${numberFormat.format(search.total)}곳 · ` +
+      `새로 찾음 ${numberFormat.format(search.found)}곳 · 남은 시간 약 ${formatDuration(search.etaSeconds)}`
+    : search.message ||
+      '시장 이름으로 주소 검색을 해서 위치를 채워요. 1초에 한 곳씩 찾아서 오래 걸리니, 필요한 시도만 골라 찾아도 돼요. 찾은 위치는 저장됩니다.';
+  $('onnuri-retry').hidden = search.running || !st.notFound;
+  $('onnuri-retry').textContent = `검색으로 못 찾은 ${numberFormat.format(st.notFound)}곳 다시 찾기`;
+  $('onnuri-standard').textContent = st.standardRows
+    ? `전국전통시장표준데이터 ${numberFormat.format(st.standardRows)}곳을 반영했어요.`
+    : '전국전통시장표준데이터 CSV(공공데이터포털, 위도·경도 포함)도 여기 올리면 전통시장 위치를 한 번에 채워요.';
+  $('onnuri-unlocated-title').textContent = `위치를 모르는 시장·상점가 (${numberFormat.format(st.markets - st.located)}곳)`;
+}
+
+async function loadUnlocated() {
+  const q = $('onnuri-unlocated-q').value.trim();
+  let list = [];
+  try {
+    list = await requestJson(`/api/onnuri/markets?${new URLSearchParams({ located: 'no', limit: '60', q })}`);
+  } catch (err) {
+    setOnnuriUploadStatus(err.message, 'error');
+  }
+  const ul = $('onnuri-unlocated-list');
+  if (!list.length) {
+    ul.replaceChildren(el('li', 'empty', q ? '그런 이름의 시장이 없어요.' : '모든 시장·상점가의 위치를 알고 있어요.'));
+    return;
+  }
+  ul.replaceChildren(
+    ...list.map((m) => {
+      const li = el('li', 'unlocated-item');
+      const text = el('div', 'unlocated-text');
+      text.append(el('span', 'unlocated-name', m.name), el('span', 'unlocated-meta', `${m.sido} · 가맹점 ${numberFormat.format(m.count)}곳${m.notFound ? ' · 검색 실패' : ''}`));
+      const pin = el('button', null, '지도에서 찍기');
+      pin.type = 'button';
+      pin.addEventListener('click', () => startPinning(m));
+      li.append(text, pin);
+      return li;
+    }),
+  );
+}
+
+async function onnuriSearch(action) {
+  try {
+    onnuri.status = await requestJson('/api/onnuri/search', { body: { action, sido: $('onnuri-sido').value } });
+  } catch (err) {
+    setOnnuriUploadStatus(err.message, 'error');
+    return;
+  }
+  renderOnnuriPanel();
+  pollOnnuri();
+}
+
+async function uploadOnnuriFiles(fileList) {
+  const files = [...fileList].filter((f) => /\.csv$/i.test(f.name));
+  if (!files.length) return;
+  for (const file of files) {
+    setOnnuriUploadStatus(`‘${file.name}’ 올리는 중… (${numberFormat.format(Math.round(file.size / 1024 / 1024))}MB)`, 'loading');
+    let res;
+    try {
+      res = await fetch(`/api/onnuri/upload?${new URLSearchParams({ name: file.name })}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: file,
+      });
+    } catch {
+      setOnnuriUploadStatus('지도 프로그램(까만 창)이 꺼져 있어요. 다시 켠 뒤 이 페이지를 새로고침하세요.', 'error');
+      return;
+    }
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) {
+      setOnnuriUploadStatus(payload?.error || `파일을 올리지 못했어요 (HTTP ${res.status})`, 'error');
+      return;
+    }
+    setOnnuriUploadStatus(
+      payload.kind === 'stores'
+        ? `가맹점 ${numberFormat.format(payload.stores)}곳, 시장·상점가 ${numberFormat.format(payload.markets)}곳을 읽었어요.`
+        : `전통시장 표준데이터 ${numberFormat.format(payload.standardRows)}곳을 반영했어요.`,
+    );
+  }
+  if (state.source !== 'onnuri') {
+    await setSource('onnuri');
+  } else {
+    await refreshOnnuri();
+    rerunQuery();
+  }
+}
+
+function setOnnuriUploadStatus(message, kind = '') {
+  const status = $('onnuri-upload-status');
+  status.textContent = message;
+  status.className = `status ${kind}`;
+  status.hidden = !message;
+}
+
+// ── 데이터 종류 바꾸기: 상가정보 ↔ 온누리 가맹점 ───────────────────────
+async function setSource(source) {
+  if (state.source === source) return;
+  if (drawing.active) stopDrawing();
+  if (pinning) stopPinning();
+  state.request?.abort();
+  state.source = source;
+  state.generation++;
+  state.level = SOURCES[source].levels[0][0];
+  state.selectedKey = null;
+  state.radiusData = null;
+  state.data = null;
+  for (const site of state.sites) {
+    site.data = null;
+    site.error = '';
+    site.loading = false;
+  }
+  for (const b of document.querySelectorAll('[data-source]')) b.setAttribute('aria-checked', String(b.dataset.source === source));
+  $('onnuri-panel').hidden = source !== 'onnuri';
+  renderLegend();
+  if (source === 'onnuri') {
+    marketBaseLayer.addTo(map);
+    setStatus('');
+    await refreshOnnuri();
+    if (!onnuri.status?.loaded) {
+      render();
+      renderSiteList();
+      setStatus('먼저 위 [온누리 가맹점 파일]에서 CSV 파일을 올려 주세요.');
+      return;
+    }
+  } else {
+    marketBaseLayer.remove();
+    clearTimeout(onnuri.poll);
+  }
+  render();
+  renderSiteList();
+  if (state.mode === 'radius' && state.center) searchAt(state.center, { fit: 'keep' });
+  else if (state.mode === 'area' && currentSite()) loadSite(currentSite());
+  else setStatus(state.mode === 'area' ? '대상지를 고르거나 새로 그려 보세요.' : '지도를 클릭하거나 주소를 검색해 보세요.');
+}
+
 // ── 찾는 방법 바꾸기: 반경(원) ↔ 영역 직접 그리기 ──────────────────────
 function setMode(mode) {
   if (state.mode === mode) return;
@@ -870,6 +1455,7 @@ const CLOSE_DISTANCE_PX = 12; // 첫 점에서 이만큼 안쪽을 누르면 영
 const drawing = { active: false, points: [], guide: null };
 
 function startDrawing() {
+  if (pinning) stopPinning();
   if (state.mode !== 'area') setMode('area');
   drawing.active = true;
   drawing.points = [];
@@ -880,7 +1466,7 @@ function startDrawing() {
   setStatus('');
   renderDrawing();
   renderSites(); // 그리는 동안 기존 대상지는 누르지 않게
-  renderStores(); // 가게 점도 누르지 않게
+  render(); // 가게 점도 누르지 않게
 }
 
 function stopDrawing() {
@@ -893,7 +1479,7 @@ function stopDrawing() {
   $('draw-help').hidden = true;
   $('draw-site').disabled = false;
   renderSites();
-  renderStores();
+  render();
 }
 
 function addDrawPoint(latlng) {
@@ -988,6 +1574,11 @@ map.on('dblclick', () => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (pinning && e.key === 'Escape') {
+    stopPinning();
+    setStatus('위치 찍기를 그만뒀어요.');
+    return;
+  }
   if (!drawing.active) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
   if (e.key === 'Escape') {
@@ -1020,21 +1611,30 @@ function selectSite(id) {
   const bounds = L.latLngBounds(site.points);
   if (!map.getBounds().contains(bounds)) map.fitBounds(bounds, { padding: [24, 24] });
   if (!site.data && !site.loading) loadSite(site);
-  else setStatus(site.loading ? `‘${site.name}’ 안의 가게를 불러오는 중…` : site.error, site.loading ? 'loading' : site.error ? 'error' : '');
+  else setStatus(site.loading ? `‘${site.name}’ 안의 ${src().unitObj} 불러오는 중…` : site.error, site.loading ? 'loading' : site.error ? 'error' : '');
 }
 
 async function loadSite(site) {
+  if (state.source === 'onnuri' && !onnuri.status?.loaded) {
+    setStatus('먼저 위 [온누리 가맹점 파일]에서 CSV 파일을 올려 주세요.', 'error');
+    return;
+  }
+  const generation = state.generation;
   site.loading = true;
   site.error = '';
   renderSiteList();
-  if (site === currentSite()) setStatus(`‘${site.name}’ 안의 가게를 불러오는 중…`, 'loading');
+  if (site === currentSite()) setStatus(`‘${site.name}’ 안의 ${src().unitObj} 불러오는 중…`, 'loading');
+  let data = null;
+  let error = '';
   try {
-    const data = await requestJson('/api/stores/area', { body: { points: site.points } });
-    for (const s of data.stores) s.color = colorForLarge(s.large);
-    site.data = data;
+    data = await requestJson(src().areaUrl, { body: { points: site.points } });
   } catch (err) {
-    site.error = err.message;
+    error = err.message;
   }
+  if (generation !== state.generation) return; // 그사이 데이터 종류를 바꿨다
+  if (data) prepareData(data);
+  site.data = data;
+  site.error = error;
   site.loading = false;
   if (!state.sites.includes(site)) return; // 불러오는 사이에 지웠다
   if (site === currentSite() && state.mode === 'area') {
@@ -1080,7 +1680,7 @@ function renderSites() {
       dashArray: selected ? null : '6 5',
       fillColor: DRAW_COLOR,
       fillOpacity: selected ? 0.05 : 0.02,
-      interactive: !drawing.active,
+      interactive: !mapBusy(),
       bubblingMouseEvents: false,
     });
     polygon.on('click', () => selectSite(site.id));
@@ -1112,7 +1712,7 @@ function renderSiteList() {
         : site.error
           ? '불러오지 못함'
           : site.data
-            ? `${numberFormat.format(site.data.stores.length)}개`
+            ? `${numberFormat.format(site.data.stores.length)}${src().countUnit}`
             : '';
       pick.append(el('span', 'site-name', site.name), el('span', 'site-count', status));
 
@@ -1162,54 +1762,74 @@ async function exportSitesExcel() {
   try {
     for (const site of state.sites) {
       if (!site.data) {
-        setStatus(`‘${site.name}’ 안의 가게를 불러오는 중…`, 'loading');
+        setStatus(`‘${site.name}’ 안의 ${src().unitObj} 불러오는 중…`, 'loading');
         await loadSite(site);
       }
-      if (site.error) throw new Error(`‘${site.name}’: ${site.error}`);
+      if (site.error || !site.data) throw new Error(`‘${site.name}’: ${site.error || '불러오지 못했습니다.'}`);
     }
     setStatus('');
     const sites = state.sites;
+    const isOnnuri = state.source === 'onnuri';
+    const keyOf = isOnnuri ? (s) => s.item || '(미기재)' : (s) => s.large || '미분류';
+    const perSite = sites.map((site) => countBy(site.data.stores, keyOf));
     const totals = new Map();
-    for (const site of sites) {
-      for (const s of site.data.stores) totals.set(s.large || '미분류', (totals.get(s.large || '미분류') || 0) + 1);
-    }
-    const categories = [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko')).map(([label]) => label);
-    const countIn = (site, label) => site.data.stores.filter((s) => (s.large || '미분류') === label).length;
+    for (const counts of perSite) for (const [key, n] of counts) totals.set(key, (totals.get(key) || 0) + n);
+    const categories = [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko')).map(([key]) => key);
+    const siteTotal = (site) => site.data.stores.length;
 
     const compare = [
-      ['대분류', ...sites.map((s) => s.name), '합계'],
-      ...categories.map((label) => [label, ...sites.map((s) => countIn(s, label)), totals.get(label)]),
-      { bold: true, cells: ['합계', ...sites.map((s) => s.data.stores.length), sites.reduce((n, s) => n + s.data.stores.length, 0)] },
+      [isOnnuri ? '취급품목' : '대분류', ...sites.map((s) => s.name), '합계'],
+      ...categories.map((key) => [key, ...perSite.map((counts) => counts.get(key) || 0), totals.get(key)]),
+      { bold: true, cells: ['합계', ...sites.map(siteTotal), sites.reduce((n, s) => n + siteTotal(s), 0)] },
       [],
-      ['면적(㎡)', ...sites.map((s) => s.data.areaM2)],
-      ['데이터 기준', ...sites.map((s) => formatYearMonth(s.data.stdrYm) || '-')],
     ];
+    if (isOnnuri) compare.push(['시장·상점가 수', ...sites.map((s) => s.data.markets.length)]);
+    compare.push(
+      ['면적(㎡)', ...sites.map((s) => s.data.areaM2)],
+      ['데이터 기준', ...sites.map((s) => (isOnnuri ? formatDate(s.data.dataDate) : formatYearMonth(s.data.stdrYm)) || '-')],
+    );
     if (sites.some((s) => s.data.truncated)) {
-      compare.push(['주의', '가게가 많은 대상지는 일부만 불러왔습니다. 작게 나눠 그리면 전부 받을 수 있습니다.']);
+      compare.push(['주의', '범위 안에 너무 많은 대상지는 일부만 불러왔습니다. 작게 나눠 그리면 전부 받을 수 있습니다.']);
+    }
+    if (isOnnuri && onnuri.status && onnuri.status.markets > onnuri.status.located) {
+      compare.push(['주의', `위치를 모르는 시장·상점가 ${onnuri.status.markets - onnuri.status.located}곳은 지도에 없어 포함되지 않았습니다.`]);
     }
 
-    const header = ['대분류', '상호명', '지점명', '중분류', '소분류', '도로명주소', '지번주소', '층'];
-    const rank = new Map(categories.map((label, i) => [label, i]));
-    const siteSheet = (site) => ({
-      name: site.name,
-      header: true,
-      autoFilter: true,
-      widths: [14, 28, 12, 16, 20, 40, 34, 8],
-      rows: [
-        header,
-        ...[...site.data.stores]
-          .sort((a, b) => rank.get(a.large || '미분류') - rank.get(b.large || '미분류') || a.name.localeCompare(b.name, 'ko'))
-          .map((s) => [s.large || '미분류', s.name, s.branch, s.medium, s.small, s.roadAddress || s.address, s.jibunAddress, formatFloor(s.floor)]),
-      ],
-    });
+    const rank = new Map(categories.map((key, i) => [key, i]));
+    const byCategory = (a, b) => rank.get(keyOf(a)) - rank.get(keyOf(b)) || a.name.localeCompare(b.name, 'ko');
+    const yn = (v) => (v ? 'Y' : 'N');
+    const siteSheet = (site) =>
+      isOnnuri
+        ? {
+            name: site.name,
+            header: true,
+            autoFilter: true,
+            widths: [24, 28, 32, 8, 8, 8, 12],
+            rows: [
+              ['취급품목', '가맹점명', '소속 시장·상점가', '소재지', '지류형', '디지털형', '가맹 등록년도'],
+              ...[...site.data.stores].sort(byCategory).map((s) => [keyOf(s), s.name, s.market, s.sido, yn(s.paper), yn(s.digital), s.year]),
+            ],
+          }
+        : {
+            name: site.name,
+            header: true,
+            autoFilter: true,
+            widths: [14, 28, 12, 16, 20, 40, 34, 8],
+            rows: [
+              ['대분류', '상호명', '지점명', '중분류', '소분류', '도로명주소', '지번주소', '층'],
+              ...[...site.data.stores]
+                .sort(byCategory)
+                .map((s) => [keyOf(s), s.name, s.branch, s.medium, s.small, s.roadAddress || s.address, s.jibunAddress, formatFloor(s.floor)]),
+            ],
+          };
 
     const bytes = await Xlsx.build([
-      { name: '비교', rows: compare, widths: [14, ...sites.map(() => 14), 10], header: true },
+      { name: '비교', rows: compare, widths: [isOnnuri ? 24 : 14, ...sites.map(() => 14), 10], header: true },
       ...sites.map(siteSheet),
     ]);
     download(
       new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
-      datedFileName(['상가', '대상지 비교', `${sites.length}곳`], 'xlsx'),
+      datedFileName([src().filePrefix, '대상지 비교', `${sites.length}곳`], 'xlsx'),
     );
   } catch (err) {
     setStatus(`엑셀 파일을 만들지 못했어요: ${err.message}`, 'error');
@@ -1258,7 +1878,11 @@ mapWrap.addEventListener('drop', (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault();
   mapWrap.classList.remove('dropping');
-  importFiles(e.dataTransfer.files);
+  const files = [...e.dataTransfer.files];
+  const csv = files.filter((f) => /\.csv$/i.test(f.name));
+  const rest = files.filter((f) => !/\.csv$/i.test(f.name));
+  if (csv.length) uploadOnnuriFiles(csv);
+  if (rest.length) importFiles(rest);
 });
 
 $('search-form').addEventListener('submit', (e) => {
@@ -1275,13 +1899,27 @@ for (const button of document.querySelectorAll('[data-radius]')) {
   });
 }
 
-for (const button of document.querySelectorAll('[data-level]')) {
-  button.addEventListener('click', () => {
-    state.level = button.dataset.level;
-    state.selectedKey = null;
-    render();
-  });
+for (const button of document.querySelectorAll('[data-source]')) {
+  button.addEventListener('click', () => setSource(button.dataset.source));
 }
+$('onnuri-input').addEventListener('change', (e) => {
+  uploadOnnuriFiles(e.target.files);
+  e.target.value = '';
+});
+$('onnuri-search').addEventListener('click', () => onnuriSearch(onnuri.status?.search.running ? 'stop' : 'start'));
+$('onnuri-retry').addEventListener('click', async () => {
+  await onnuriSearch('retry');
+  await onnuriSearch('start');
+});
+$('onnuri-unlocated').addEventListener('toggle', () => {
+  if ($('onnuri-unlocated').open) loadUnlocated();
+});
+let unlocatedTimer = null;
+$('onnuri-unlocated-q').addEventListener('input', () => {
+  clearTimeout(unlocatedTimer);
+  unlocatedTimer = setTimeout(loadUnlocated, 300);
+});
+renderLegend();
 
 $('clear-filter').addEventListener('click', () => {
   state.selectedKey = null;
