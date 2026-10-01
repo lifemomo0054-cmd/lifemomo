@@ -99,6 +99,7 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 const radiusLayer = L.layerGroup().addTo(map); // 반경 원 + 가운데 표시
 const siteLayer = L.layerGroup(); // 직접 그린 대상지들
 const marketBaseLayer = L.layerGroup(); // 온누리: 위치를 아는 모든 시장(흐린 점)
+const regionLayer = L.layerGroup(); // 전국 상권 현황: 시도마다 원 하나
 const storeLayer = L.layerGroup().addTo(map);
 const drawLayer = L.layerGroup().addTo(map); // 그리는 중인 선
 
@@ -248,6 +249,7 @@ function restackLayers() {
   radiusLayer.eachLayer((l) => l.bringToBack && l.bringToBack());
   siteLayer.eachLayer((l) => l.bringToBack && l.bringToBack());
   for (const overlay of overlays) overlay.layer?.bringToBack();
+  regionLayer.eachLayer((l) => l.bringToBack && l.bringToBack()); // 시도 원은 맨 아래
 }
 
 async function searchAddress(query) {
@@ -321,6 +323,7 @@ async function requestJson(url, { signal, body } = {}) {
 function render() {
   renderStores();
   renderStats();
+  drawRegionLayer(); // 그리기·위치 찍기 중에는 시도 원도 클릭을 가로채지 않게 다시 그린다
 }
 
 function renderStores() {
@@ -398,6 +401,7 @@ function renderStats() {
   const data = state.data;
   $('result').hidden = !data;
   if (!data) return;
+  renderRegionNote();
 
   const stores = data.stores;
   const onnuriData = data.source === 'onnuri';
@@ -1420,6 +1424,302 @@ async function setSource(source) {
   else setStatus(state.mode === 'area' ? '대상지를 고르거나 새로 그려 보세요.' : '지도를 클릭하거나 주소를 검색해 보세요.');
 }
 
+// ── 전국 상권 현황 (시도별, 소상공인시장진흥공단 오픈API) ─────────────
+// 시도별 표를 받은 그대로 쓴다. 열 이름이 바뀌어도 되도록, 시도 열과 숫자 열을 내용을 보고 찾는다.
+const SIDO_CENTERS = {
+  // 가까운 시도끼리 원이 겹치지 않게 몇 곳(인천·세종·대전·충남·전남)은 실제 중심에서 조금 옮겼다.
+  서울: [37.5665, 126.978], 부산: [35.1796, 129.0756], 대구: [35.8714, 128.6014], 인천: [37.45, 126.45],
+  광주: [35.1595, 126.8526], 대전: [36.3, 127.45], 울산: [35.5384, 129.3114], 세종: [36.6, 127.2],
+  경기: [37.42, 127.52], 강원: [37.8, 128.25], 충북: [36.75, 127.75], 충남: [36.5, 126.75],
+  전북: [35.72, 127.15], 전남: [34.75, 126.75], 경북: [36.35, 128.75], 경남: [35.3, 128.3], 제주: [33.38, 126.55],
+};
+const SIDO_PATTERNS = [
+  ['서울', /^서울/], ['부산', /^부산/], ['대구', /^대구/], ['인천', /^인천/], ['광주', /^광주/], ['대전', /^대전/],
+  ['울산', /^울산/], ['세종', /^세종/], ['경기', /^경기/], ['강원', /^강원/], ['충북', /^(충청북|충북)/],
+  ['충남', /^(충청남|충남)/], ['전북', /^(전라북|전북)/], ['전남', /^(전라남|전남)/], ['경북', /^(경상북|경북)/],
+  ['경남', /^(경상남|경남)/], ['제주', /^제주/], ['전국', /^(전국|합계|총계|계|total)$/i],
+];
+const KOREA_VIEW = L.latLngBounds([33.0, 124.6], [38.7, 131.0]);
+const REGION_MAX_ZOOM = 9; // 시도 원은 멀리 볼 때만. 가까이 가면 도시 한가운데를 가려서 숨긴다.
+const region = { data: null, sidoCol: '', numericCols: [], metricCols: [], metric: '', rows: [], total: null, shown: false };
+
+// '서울특별시', '경상북도', '전북특별자치도', '경북' … → '서울', '경북', '전북' …
+function canonicalSido(value) {
+  const v = String(value ?? '').replace(/\s/g, '');
+  if (!v) return '';
+  if (/^전남광주/.test(v)) return '전남'; // 온누리 파일의 '전남광주'
+  return SIDO_PATTERNS.find(([, pattern]) => pattern.test(v))?.[0] || '';
+}
+
+function toNumber(value) {
+  if (value == null || value === '') return null;
+  const n = typeof value === 'number' ? value : Number(String(value).replace(/[,\s]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+const formatValue = (value) => (typeof value === 'number' ? numberFormat.format(value) : String(value ?? ''));
+
+function analyzeRegion(data) {
+  const rows = data.rows;
+  const sidoCol = data.columns.find((c) => rows.filter((r) => canonicalSido(r[c])).length >= Math.max(3, rows.length * 0.6)) || '';
+  const numericCols = data.columns.filter(
+    (c) => c !== sidoCol && rows.filter((r) => toNumber(r[c]) != null).length >= Math.max(1, rows.length * 0.8),
+  );
+  // 연도·코드 같은 열은 크기를 비교할 값이 아니라서 지도·순위에는 쓰지 않는다(표에는 나온다).
+  const yearLike = (c) =>
+    rows.every((r) => {
+      const n = toNumber(r[c]);
+      return n == null || (Number.isInteger(n) && n >= 1990 && n <= 2100);
+    });
+  const metricCols = numericCols.filter((c) => !/코드|code|번호|연번|순번|^no$/i.test(c) && !yearLike(c));
+  Object.assign(region, {
+    data,
+    sidoCol,
+    numericCols,
+    metricCols,
+    plainCols: new Set(numericCols.filter((c) => !metricCols.includes(c))), // 연도·코드: 쉼표 없이 그대로
+    rows: rows.map((raw) => ({ raw, sido: sidoCol ? canonicalSido(raw[sidoCol]) : '' })),
+  });
+  region.total = region.rows.find((r) => r.sido === '전국') || null;
+  if (!metricCols.includes(region.metric)) region.metric = metricCols[0] || '';
+}
+
+async function loadRegion(refresh = false) {
+  setRegionStatus(refresh ? '새로 받는 중…' : '불러오는 중…', 'loading');
+  try {
+    const data = await requestJson(`/api/sangkwon${refresh ? '?refresh=1' : ''}`);
+    analyzeRegion(data);
+    setRegionStatus(data.warning ? `API를 쓸 수 없어서 올린 파일을 보여 줘요. — ${data.warning}` : '', data.warning ? 'error' : '');
+  } catch (err) {
+    setRegionStatus(err.message, 'error');
+    return;
+  }
+  renderRegion();
+  if (state.data) renderRegionNote();
+}
+
+function regionValue(row) {
+  return toNumber(row.raw[region.metric]);
+}
+
+function renderRegion() {
+  const d = region.data;
+  if (!d) return;
+  const sidos = region.rows.map((r) => r.sido).filter((x) => x && x !== '전국');
+  const repeated = sidos.length !== new Set(sidos).size;
+  $('region-info').textContent = [
+    d.source === 'api' ? '공공데이터포털 오픈API' : `올린 파일${d.fileName ? ` (${d.fileName})` : ''}`,
+    `${region.rows.length}줄 · 항목 ${d.columns.length}개`,
+    !region.sidoCol ? '시도 열을 찾지 못해 지도에는 못 그리고 표로만 보여 줘요' : '',
+    repeated ? '같은 시도가 여러 줄이라 지도에는 첫 줄만 그려요' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  const select = $('region-metric');
+  if ([...select.options].map((o) => o.value).join('|') !== region.metricCols.join('|')) {
+    select.replaceChildren(...region.metricCols.map((c) => el('option', null, c)));
+  }
+  select.value = region.metric;
+  $('region-controls').hidden = !region.metricCols.length || !region.sidoCol;
+  $('region-hint').hidden = $('region-controls').hidden;
+  $('region-toggle').setAttribute('aria-pressed', String(region.shown));
+  $('region-toggle').textContent = region.shown ? '지도에서 숨기기' : '지도에 보기';
+  $('region-export').hidden = false;
+  $('region-refresh').hidden = false;
+  $('region-table-wrap').hidden = false;
+
+  // 순위 목록 (시도만, 큰 순서). 비율은 '전국' 줄이 있으면 그 값, 없으면 시도 합계 기준.
+  const list = $('region-list');
+  const seen = new Set();
+  const ranked = region.rows
+    .filter((r) => r.sido && r.sido !== '전국' && regionValue(r) != null && !seen.has(r.sido) && seen.add(r.sido))
+    .sort((a, b) => regionValue(b) - regionValue(a));
+  if (!region.metric || !ranked.length) {
+    list.replaceChildren();
+  } else {
+    const max = regionValue(ranked[0]) || 1;
+    const whole = region.total ? regionValue(region.total) : ranked.reduce((n, r) => n + regionValue(r), 0);
+    list.replaceChildren(
+      ...ranked.map((r) => {
+        const value = regionValue(r);
+        const button = el('button', 'category');
+        button.type = 'button';
+        button.addEventListener('click', () => focusRegion(r));
+        const count = el('span', 'category-count', formatValue(value));
+        if (whole > 0) count.append(el('span', 'category-share', formatShare(value, whole)));
+        const bar = el('span', 'category-bar');
+        const fill = el('span');
+        fill.style.width = `${Math.max(0, (value / max) * 100)}%`;
+        fill.style.background = '#52514e';
+        bar.append(fill);
+        button.append(el('span', 'category-name', String(r.raw[region.sidoCol])), count, bar);
+        const li = el('li');
+        li.append(button);
+        return li;
+      }),
+    );
+  }
+
+  // 표로 전체 보기
+  const numeric = new Set(region.numericCols);
+  const head = el('tr');
+  for (const c of d.columns) head.append(el('th', null, c));
+  const thead = el('thead');
+  thead.append(head);
+  const tbody = el('tbody');
+  for (const row of d.rows) {
+    const tr = el('tr');
+    for (const c of d.columns) {
+      const n = numeric.has(c) ? toNumber(row[c]) : null;
+      const text = n != null && !region.plainCols.has(c) ? formatValue(n) : String(row[c] ?? '');
+      tr.append(el('td', n != null ? 'num' : null, text));
+    }
+    tbody.append(tr);
+  }
+  $('region-table').replaceChildren(thead, tbody);
+
+  drawRegionLayer();
+}
+
+function drawRegionLayer() {
+  regionLayer.clearLayers();
+  if (!region.shown || !region.metric || !region.sidoCol || map.getZoom() > REGION_MAX_ZOOM) return;
+  const seen = new Set();
+  const placed = region.rows.filter((r) => SIDO_CENTERS[r.sido] && !seen.has(r.sido) && seen.add(r.sido));
+  const max = Math.max(1, ...placed.map((r) => regionValue(r) || 0));
+  for (const r of placed) {
+    const value = regionValue(r);
+    const circle = L.circleMarker(SIDO_CENTERS[r.sido], {
+      radius: 8 + 30 * Math.sqrt(Math.max(0, value || 0) / max),
+      color: '#52514e',
+      weight: 1.5,
+      fillColor: '#52514e',
+      fillOpacity: 0.14,
+      bubblingMouseEvents: false,
+      interactive: !mapBusy(),
+    });
+    circle.bindTooltip(
+      () => {
+        const box = el('div');
+        box.append(el('div', null, r.sido), el('div', null, value == null ? '-' : formatValue(value)));
+        return box;
+      },
+      { permanent: true, direction: 'center', className: 'region-label' },
+    );
+    circle.bindPopup(() => regionPopup(r), { maxWidth: 340 });
+    r.layer = circle;
+    regionLayer.addLayer(circle);
+  }
+  restackLayers();
+}
+
+function regionPopup(r) {
+  const root = el('div', 'popup');
+  root.append(el('strong', 'popup-title', `${r.raw[region.sidoCol]} 상권 현황`));
+  const table = el('table', 'attr-table');
+  for (const c of region.data.columns) {
+    if (c === region.sidoCol) continue;
+    const n = region.metricCols.includes(c) ? toNumber(r.raw[c]) : null;
+    const tr = el('tr');
+    tr.append(el('th', null, c), el('td', null, n != null ? formatValue(n) : String(r.raw[c] ?? '')));
+    table.append(tr);
+  }
+  root.append(table);
+  return root;
+}
+
+function focusRegion(r) {
+  if (!region.shown) toggleRegion(true);
+  const at = SIDO_CENTERS[r.sido];
+  if (!at) return;
+  map.setView(at, Math.min(map.getZoom(), 8));
+  r.layer?.openPopup();
+}
+
+function toggleRegion(show = !region.shown) {
+  region.shown = show;
+  if (show) {
+    regionLayer.addTo(map);
+    if (map.getZoom() > REGION_MAX_ZOOM - 1) map.fitBounds(KOREA_VIEW);
+  } else {
+    regionLayer.remove();
+  }
+  renderRegion();
+}
+
+// 지금 결과(반경·대상지)가 속한 시도의 상권 현황을 한 줄로 보여 준다.
+function renderRegionNote() {
+  const note = $('region-note');
+  const data = state.data;
+  let sido = '';
+  if (data && region.data) {
+    const counts = countBy(data.stores, (s) => canonicalSido(s.sido));
+    counts.delete('');
+    sido = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+  }
+  const row = sido && region.rows.find((r) => r.sido === sido);
+  note.hidden = !row;
+  if (!row) return;
+  const cols = (region.metricCols.length ? region.metricCols : region.numericCols).slice(0, 5);
+  note.textContent = `${row.raw[region.sidoCol]} 상권 현황 — ${cols.map((c) => `${c} ${formatValue(toNumber(row.raw[c]) ?? row.raw[c])}`).join(' · ')}`;
+}
+
+async function exportRegionExcel() {
+  const d = region.data;
+  if (!d) return;
+  const numeric = new Set(region.numericCols);
+  const rows = [d.columns, ...d.rows.map((r) => d.columns.map((c) => (numeric.has(c) && toNumber(r[c]) != null ? toNumber(r[c]) : r[c] ?? '')))];
+  const when = d.fetchedAt || d.savedAt;
+  const bytes = await Xlsx.build([
+    { name: '전국 상권 현황', rows, header: true, autoFilter: true, widths: d.columns.map((c) => Math.max(10, Math.min(30, c.length * 2 + 4))) },
+    {
+      name: '정보',
+      header: true,
+      widths: [12, 60],
+      rows: [
+        ['항목', '내용'],
+        ['자료', '소상공인시장진흥공단_전국 상권 현황'],
+        ['받은 곳', d.source === 'api' ? '공공데이터포털 오픈API' : `올린 파일 ${d.fileName || ''}`],
+        ['받은 때', when ? new Date(when).toLocaleString('ko-KR') : '-'],
+      ],
+    },
+  ]);
+  download(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), datedFileName(['전국 상권 현황'], 'xlsx'));
+}
+
+async function uploadRegionFile(file) {
+  if (!file) return;
+  setRegionStatus(`‘${file.name}’ 올리는 중…`, 'loading');
+  let res;
+  try {
+    res = await fetch(`/api/sangkwon/upload?${new URLSearchParams({ name: file.name })}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: file,
+    });
+  } catch {
+    setRegionStatus('지도 프로그램(까만 창)이 꺼져 있어요. 다시 켠 뒤 이 페이지를 새로고침하세요.', 'error');
+    return;
+  }
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    setRegionStatus(payload?.error || `파일을 올리지 못했어요 (HTTP ${res.status})`, 'error');
+    return;
+  }
+  await loadRegion();
+  if (region.data?.source === 'api') {
+    setRegionStatus('파일을 저장했어요. 지금은 API가 잘 되어서 API 자료를 보여 주고, 올린 파일은 API가 안 될 때 씁니다.');
+  }
+}
+
+function setRegionStatus(message, kind = '') {
+  const status = $('region-status');
+  status.textContent = message;
+  status.className = `status ${kind}`;
+  status.hidden = !message;
+}
+
 // ── 찾는 방법 바꾸기: 반경(원) ↔ 영역 직접 그리기 ──────────────────────
 function setMode(mode) {
   if (state.mode === mode) return;
@@ -1918,6 +2218,24 @@ let unlocatedTimer = null;
 $('onnuri-unlocated-q').addEventListener('input', () => {
   clearTimeout(unlocatedTimer);
   unlocatedTimer = setTimeout(loadUnlocated, 300);
+});
+$('region-panel').addEventListener('toggle', () => {
+  if ($('region-panel').open && !region.data) loadRegion();
+});
+$('region-metric').addEventListener('change', (e) => {
+  region.metric = e.target.value;
+  renderRegion();
+  if (state.data) renderRegionNote();
+});
+$('region-toggle').addEventListener('click', () => toggleRegion());
+map.on('zoomend', () => {
+  if (region.shown) drawRegionLayer();
+});
+$('region-refresh').addEventListener('click', () => loadRegion(true));
+$('region-export').addEventListener('click', exportRegionExcel);
+$('region-input').addEventListener('change', (e) => {
+  uploadRegionFile(e.target.files[0]);
+  e.target.value = '';
 });
 renderLegend();
 

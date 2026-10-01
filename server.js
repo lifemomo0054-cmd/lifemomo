@@ -13,6 +13,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { localMeters, insideRing, distanceToSegment, bounds, centerOf, polygonAreaM2, round6 } = require('./geo.js');
 const { createOnnuri } = require('./onnuri.js');
+const { createSangkwon } = require('./sangkwon.js');
 
 const ROWS_PER_PAGE = 1000; // 상가정보 API가 한 번에 주는 최대 건수
 const MAX_RADIUS_M = 2000; // 상가정보 API가 허용하는 최대 반경(m)
@@ -85,6 +86,7 @@ function readConfigFromEnv(env = process.env) {
     sdscBaseUrl: env.SDSC_BASE_URL || 'https://apis.data.go.kr/B553077/api/open/sdsc2',
     nominatimUrl: env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org/search',
     dataDir: env.DATA_DIR || path.join(__dirname, 'data'),
+    sangkwonUrl: env.SANGKWON_API_URL || undefined,
   };
 }
 
@@ -405,6 +407,34 @@ function createServer(config) {
   const onnuri = createOnnuri({ dataDir: config.dataDir || path.join(__dirname, 'data'), searchPlace });
   onnuri.load().catch((err) => console.error(`[온누리] 파일을 읽지 못했습니다: ${err.message}`));
 
+  // ── 전국 상권 현황(시도별, odcloud 오픈API) ──
+  const sangkwon = createSangkwon({
+    serviceKey: config.serviceKey,
+    url: config.sangkwonUrl,
+    dataDir: config.dataDir || path.join(__dirname, 'data'),
+  });
+
+  async function handleSangkwon(req, res, url) {
+    const route = `${req.method} ${url.pathname}`;
+    if (route === 'GET /api/sangkwon') {
+      try {
+        return sendJson(res, 200, await sangkwon.get({ refresh: url.searchParams.get('refresh') === '1' }));
+      } catch (err) {
+        throw new ApiError(err.unavailable ? 503 : 502, err.message);
+      }
+    }
+    if (route === 'POST /api/sangkwon/upload') {
+      requireContentType(req, /^application\/octet-stream\b/i, '파일 내용 그대로 보내 주세요.');
+      const buffer = await readRawBody(req, 20 * 1024 * 1024, '파일이 너무 큽니다(20MB 넘음).');
+      try {
+        return sendJson(res, 200, await sangkwon.saveUpload(buffer, (url.searchParams.get('name') || 'sangkwon.csv').slice(0, 200)));
+      } catch (err) {
+        throw new ApiError(400, err.message);
+      }
+    }
+    return sendJson(res, 404, { error: '없는 API입니다.' });
+  }
+
   async function handleOnnuri(req, res, url) {
     await onnuri.ready();
     const params = url.searchParams;
@@ -545,6 +575,7 @@ function createServer(config) {
     const url = new URL(req.url, 'http://localhost');
     try {
       if (url.pathname.startsWith('/api/onnuri/')) return await handleOnnuri(req, res, url);
+      if (url.pathname === '/api/sangkwon' || url.pathname.startsWith('/api/sangkwon/')) return await handleSangkwon(req, res, url);
       if (url.pathname === '/api/stores/area') {
         if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST 요청만 받습니다.' });
         // JSON만 받으면 다른 사이트가 몰래 이 주소를 불러 호출 한도를 쓰는 것도 막힌다(브라우저가 사전 확인을 요구).

@@ -66,6 +66,30 @@
         </div>
       </section>
 
+      <details id="region-panel" class="region-section">
+        <summary>전국 상권 현황 <span class="region-sub">시도별 · 공공데이터 API</span></summary>
+        <div class="region-body">
+          <p id="region-status" class="status" role="status" aria-live="polite" hidden></p>
+          <p id="region-info" class="hint"></p>
+          <div id="region-controls" class="region-controls" hidden>
+            <label class="sr-only" for="region-metric">볼 항목</label>
+            <select id="region-metric"></select>
+            <button type="button" id="region-toggle" class="export-button" aria-pressed="false">지도에 보기</button>
+          </div>
+          <p id="region-hint" class="hint" hidden>시도 원은 지도를 멀리 볼 때만 보여요. 목록에서 시도를 누르면 그곳으로 이동해요.</p>
+          <ol id="region-list" class="category-list"></ol>
+          <details id="region-table-wrap" class="region-table-wrap" hidden>
+            <summary>표로 전체 보기</summary>
+            <div class="region-table-scroll"><table id="region-table" class="region-table"></table></div>
+          </details>
+          <div class="region-actions">
+            <button type="button" id="region-export" class="export-button" hidden>엑셀로 저장</button>
+            <button type="button" id="region-refresh" class="link-button" hidden>새로 받기</button>
+            <label class="link-button">CSV 파일로 올리기<input id="region-input" class="sr-only" type="file" accept=".csv"></label>
+          </div>
+        </div>
+      </details>
+
       <div class="field">
         <span class="field-label" id="mode-label">찾는 방법</span>
         <div id="mode-options" class="segmented" role="radiogroup" aria-labelledby="mode-label">
@@ -131,6 +155,7 @@
         </div>
         <p id="truncated" class="notice notice-warn" hidden></p>
         <p id="result-note" class="notice notice-warn" hidden></p>
+        <p id="region-note" class="notice notice-info" hidden></p>
 
         <div id="level-tabs" class="levels" role="group" aria-label="분류 단계"></div>
         <p id="level-hint" class="hint">업종을 누르면 지도에 그 업종만 표시합니다.</p>

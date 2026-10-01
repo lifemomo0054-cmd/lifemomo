@@ -406,6 +406,45 @@ code { font-size: 0.9em; background: rgba(11, 11, 11, 0.06); padding: 0 4px; bor
 .popup-items { margin-top: 4px; color: var(--muted); font-size: 12px; }
 .popup-actions { display: flex; gap: 6px; margin-top: 8px; }
 
+/* ── 전국 상권 현황 (시도별) ──────────────── */
+.region-section { border: 1px solid var(--line); border-radius: 10px; }
+.region-section > summary { padding: 12px; cursor: pointer; font-size: 14px; font-weight: 600; }
+.region-sub { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
+.region-body { display: grid; gap: 10px; padding: 0 12px 12px; }
+.region-body .hint, .region-body .status { margin: 0; }
+.region-controls { display: flex; gap: 8px; }
+.region-controls select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+}
+.region-controls .export-button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+.region-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.region-table-wrap summary { cursor: pointer; font-size: 13px; color: var(--ink-2); }
+.region-table-scroll { max-height: 320px; overflow: auto; margin-top: 6px; border: 1px solid var(--line); border-radius: 6px; }
+.region-table { border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.region-table th, .region-table td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+.region-table th { position: sticky; top: 0; background: var(--surface); font-weight: 600; }
+.region-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.notice-info { background: var(--accent-soft); border: 1px solid #b7d3f6; color: var(--ink); }
+.leaflet-tooltip.region-label {
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: none;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+}
+
 /* ── 지도 위 요소 ─────────────────────────── */
 /* 지도 바탕은 흐리게 해서 가게 점이 잘 보이게 한다. */
 .leaflet-tile-pane { filter: grayscale(0.85) brightness(1.04); }
