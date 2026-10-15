@@ -15,6 +15,7 @@ const { localMeters, insideRing, distanceToSegment, bounds, centerOf, polygonAre
 const { createOnnuri } = require('./onnuri.js');
 const { createSangkwon } = require('./sangkwon.js');
 const { createFestivals } = require('./festival.js');
+const { createSales } = require('./sales.js');
 
 const ROWS_PER_PAGE = 1000; // 상가정보 API가 한 번에 주는 최대 건수
 const MAX_RADIUS_M = 2000; // 상가정보 API가 허용하는 최대 반경(m)
@@ -436,6 +437,28 @@ function createServer(config) {
     return sendJson(res, 404, { error: '없는 API입니다.' });
   }
 
+  // ── 전통시장 일 평균 매출액 (CSV) ──
+  const sales = createSales({ dataDir: config.dataDir || path.join(__dirname, 'data') });
+
+  async function handleSales(req, res, url) {
+    const route = `${req.method} ${url.pathname}`;
+    if (route === 'GET /api/sales') return sendJson(res, 200, await sales.get());
+    if (route === 'POST /api/sales/upload') {
+      requireContentType(req, /^application\/octet-stream\b/i, '파일 내용 그대로 보내 주세요.');
+      const buffer = await readRawBody(req, 5 * 1024 * 1024, '파일이 너무 큽니다(5MB 넘음).');
+      try {
+        return sendJson(res, 200, await sales.saveUpload(buffer, (url.searchParams.get('name') || 'sales.csv').slice(0, 200)));
+      } catch (err) {
+        throw new ApiError(400, err.message);
+      }
+    }
+    if (route === 'POST /api/sales/reset') {
+      requireContentType(req, /^application\/json\b/i, 'JSON으로 보내 주세요.');
+      return sendJson(res, 200, await sales.reset());
+    }
+    return sendJson(res, 404, { error: '없는 API입니다.' });
+  }
+
   // ── 축제 정보 (CSV, 주소로 위치 찾기) ──
   const festivals = createFestivals({ dataDir: config.dataDir || path.join(__dirname, 'data'), searchPlace });
   festivals.load().catch((err) => console.error(`[축제] 파일을 읽지 못했습니다: ${err.message}`));
@@ -630,6 +653,7 @@ function createServer(config) {
       if (url.pathname.startsWith('/api/onnuri/')) return await handleOnnuri(req, res, url);
       if (url.pathname === '/api/sangkwon' || url.pathname.startsWith('/api/sangkwon/')) return await handleSangkwon(req, res, url);
       if (url.pathname === '/api/festivals' || url.pathname.startsWith('/api/festivals/')) return await handleFestivals(req, res, url);
+      if (url.pathname === '/api/sales' || url.pathname.startsWith('/api/sales/')) return await handleSales(req, res, url);
       if (url.pathname === '/api/stores/area') {
         if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST 요청만 받습니다.' });
         // JSON만 받으면 다른 사이트가 몰래 이 주소를 불러 호출 한도를 쓰는 것도 막힌다(브라우저가 사전 확인을 요구).

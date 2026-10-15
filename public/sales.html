@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>전통시장 매출액</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="sales.css">
+</head>
+<body class="sales-page">
+  <div class="sales">
+    <header class="sales-head">
+      <a class="back-link" href="./">← 상가 지도로 돌아가기</a>
+      <h1>전통시장 하루 평균 매출액</h1>
+      <p class="lede">전통시장 한 곳이 하루에 평균 얼마를 파는지, 해마다 어떻게 달라졌는지 봅니다.</p>
+    </header>
+
+    <section class="sales-source" aria-label="자료">
+      <p id="source-text" class="hint"></p>
+      <div class="sales-actions">
+        <label class="file-button">
+          CSV 파일 올리기
+          <input id="sales-input" class="sr-only" type="file" accept=".csv">
+        </label>
+        <button type="button" id="sales-export" class="export-button" disabled>엑셀로 저장</button>
+        <button type="button" id="sales-reset" class="link-button" hidden>처음 자료로 되돌리기</button>
+      </div>
+      <p id="sales-status" class="status" role="status" aria-live="polite" hidden></p>
+    </section>
+
+    <div id="series-field" class="field" hidden>
+      <label class="field-label" for="series-select">볼 항목</label>
+      <select id="series-select"></select>
+    </div>
+
+    <section id="hero" class="sales-hero" aria-labelledby="hero-label" hidden>
+      <p id="hero-label" class="hero-label"></p>
+      <p class="hero-value"><span id="hero-value"></span><span id="hero-unit" class="hero-unit"></span></p>
+      <p id="hero-won" class="hero-won"></p>
+      <p id="hero-delta" class="hero-delta"></p>
+    </section>
+
+    <section id="tiles" class="sales-tiles" aria-label="요약" hidden></section>
+
+    <section id="chart-card" class="sales-card" aria-labelledby="chart-title" hidden>
+      <h2 id="chart-title"></h2>
+      <p id="chart-sub" class="hint"></p>
+      <div id="chart" class="sales-chart"></div>
+      <div id="chart-tip" class="chart-tip" role="tooltip" hidden></div>
+    </section>
+
+    <section id="table-card" class="sales-card" aria-labelledby="table-title" hidden>
+      <h2 id="table-title">표로 보기</h2>
+      <div class="sales-table-scroll"><table id="sales-table" class="sales-table"></table></div>
+    </section>
+
+    <section id="calc-card" class="sales-card" aria-labelledby="calc-title" hidden>
+      <h2 id="calc-title">우리 시장과 견주어 보기</h2>
+      <div class="calc-grid">
+        <label class="calc-field">
+          <span>우리 시장 하루 매출</span>
+          <span class="calc-input"><input id="calc-mine" type="number" inputmode="decimal" min="0" step="any" placeholder="예: 3000"><span id="calc-mine-unit"></span></span>
+        </label>
+        <p id="calc-mine-out" class="calc-out" aria-live="polite"></p>
+        <label class="calc-field">
+          <span>한 달에 장이 서는 날</span>
+          <span class="calc-input"><input id="calc-days" type="number" inputmode="numeric" min="1" max="31" step="1" value="25"><span>일</span></span>
+        </label>
+        <p id="calc-days-out" class="calc-out" aria-live="polite"></p>
+      </div>
+      <p class="hint">한 달·한 해 금액은 하루 평균에 날 수를 곱한 <strong>어림값</strong>이에요. 실제 매출은 시장 크기, 요일, 계절에 따라 크게 달라요.</p>
+    </section>
+
+    <section class="sales-card sales-about" aria-labelledby="about-title">
+      <h2 id="about-title">이 자료에 대해</h2>
+      <ul>
+        <li>소상공인시장진흥공단이 전통시장 실태조사로 낸 값을 공공데이터포털에 올린 파일이에요. 전국 전통시장을 모두 합쳐 <strong>시장 한 곳당 하루</strong> 평균을 낸 값입니다.</li>
+        <li>시장별·지역별 값은 들어 있지 않아요. 특정 시장의 매출이 아니라 전국 평균으로만 봐 주세요.</li>
+        <li>더 최근 연도의 파일을 받으면 [CSV 파일 올리기]로 바꿔 넣으세요. 연도나 항목(열)이 늘어도 그대로 읽어요.</li>
+      </ul>
+    </section>
+  </div>
+
+  <script src="shapefile.js"></script>
+  <script src="xlsx.js"></script>
+  <script src="sales-page.js"></script>
+</body>
+</html>
