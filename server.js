@@ -14,6 +14,7 @@ const path = require('node:path');
 const { localMeters, insideRing, distanceToSegment, bounds, centerOf, polygonAreaM2, round6 } = require('./geo.js');
 const { createOnnuri } = require('./onnuri.js');
 const { createSangkwon } = require('./sangkwon.js');
+const { createFestivals } = require('./festival.js');
 
 const ROWS_PER_PAGE = 1000; // 상가정보 API가 한 번에 주는 최대 건수
 const MAX_RADIUS_M = 2000; // 상가정보 API가 허용하는 최대 반경(m)
@@ -435,6 +436,58 @@ function createServer(config) {
     return sendJson(res, 404, { error: '없는 API입니다.' });
   }
 
+  // ── 축제 정보 (CSV, 주소로 위치 찾기) ──
+  const festivals = createFestivals({ dataDir: config.dataDir || path.join(__dirname, 'data'), searchPlace });
+  festivals.load().catch((err) => console.error(`[축제] 파일을 읽지 못했습니다: ${err.message}`));
+
+  async function handleFestivals(req, res, url) {
+    await festivals.ready();
+    const route = `${req.method} ${url.pathname}`;
+    switch (route) {
+      case 'GET /api/festivals':
+        return sendJson(res, 200, { status: festivals.status(), festivals: festivals.list() });
+      case 'GET /api/festivals/status':
+        return sendJson(res, 200, festivals.status());
+      case 'POST /api/festivals/upload': {
+        requireContentType(req, /^application\/octet-stream\b/i, '파일 내용 그대로 보내 주세요.');
+        const buffer = await readRawBody(req, 50 * 1024 * 1024, '파일이 너무 큽니다(50MB 넘음).');
+        let st;
+        try {
+          st = await festivals.saveUpload(buffer, (url.searchParams.get('name') || 'festivals.csv').slice(0, 200));
+        } catch (err) {
+          throw new ApiError(400, err.message);
+        }
+        if (st.located < st.addresses) st = festivals.startSearch(); // 올리자마자 주소로 위치 찾기 시작
+        return sendJson(res, 200, st);
+      }
+      case 'POST /api/festivals/location': {
+        requireContentType(req, /^application\/json\b/i, 'JSON으로 보내 주세요.');
+        const body = (await readJsonBody(req)) || {};
+        const address = typeof body.address === 'string' ? body.address : '';
+        if (body.clear) {
+          if (!festivals.clearLocation(address)) throw new ApiError(404, '그런 주소의 축제가 없습니다.');
+          return sendJson(res, 200, festivals.status());
+        }
+        const lat = parseCoord(body.lat, 32, 39.5);
+        const lng = parseCoord(body.lng, 124, 132);
+        if (lat == null || lng == null) throw new ApiError(400, '대한민국 안의 위치만 찍을 수 있습니다.');
+        if (!festivals.setLocation(address, lat, lng)) throw new ApiError(404, '그런 주소의 축제가 없습니다.');
+        return sendJson(res, 200, festivals.status());
+      }
+      case 'POST /api/festivals/search': {
+        requireContentType(req, /^application\/json\b/i, 'JSON으로 보내 주세요.');
+        if (!festivals.status().loaded) throw new ApiError(409, '축제 CSV 파일을 먼저 올려 주세요.');
+        const body = (await readJsonBody(req)) || {};
+        if (body.action === 'start') return sendJson(res, 200, festivals.startSearch());
+        if (body.action === 'stop') return sendJson(res, 200, festivals.stopSearch());
+        if (body.action === 'retry') return sendJson(res, 200, festivals.retryNotFound());
+        throw new ApiError(400, 'action은 start, stop, retry 중 하나여야 합니다.');
+      }
+      default:
+        return sendJson(res, 404, { error: '없는 API입니다.' });
+    }
+  }
+
   async function handleOnnuri(req, res, url) {
     await onnuri.ready();
     const params = url.searchParams;
@@ -576,6 +629,7 @@ function createServer(config) {
     try {
       if (url.pathname.startsWith('/api/onnuri/')) return await handleOnnuri(req, res, url);
       if (url.pathname === '/api/sangkwon' || url.pathname.startsWith('/api/sangkwon/')) return await handleSangkwon(req, res, url);
+      if (url.pathname === '/api/festivals' || url.pathname.startsWith('/api/festivals/')) return await handleFestivals(req, res, url);
       if (url.pathname === '/api/stores/area') {
         if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST 요청만 받습니다.' });
         // JSON만 받으면 다른 사이트가 몰래 이 주소를 불러 호출 한도를 쓰는 것도 막힌다(브라우저가 사전 확인을 요구).
@@ -607,6 +661,7 @@ function createServer(config) {
     }
   });
   server.onnuri = onnuri;
+  server.festivals = festivals;
   return server;
 }
 
@@ -696,6 +751,7 @@ async function main() {
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, async () => {
       await server.onnuri.flush().catch(() => {}); // 찾은 시장 위치를 저장하고 끈다
+      await server.festivals.flush().catch(() => {});
       process.exit(0);
     });
   }

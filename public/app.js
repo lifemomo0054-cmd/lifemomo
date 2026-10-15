@@ -84,7 +84,7 @@ const state = {
   request: null, // 진행 중인 조회의 AbortController
 };
 
-let pinning = null; // 온누리: 지도에서 위치를 찍는 중인 시장 { market }
+let pinning = null; // 지도에서 위치를 찍는 중: { label, onPick(latlng) } (온누리 시장, 축제)
 const $ = (id) => document.getElementById(id);
 const numberFormat = new Intl.NumberFormat('ko-KR');
 
@@ -100,6 +100,7 @@ const radiusLayer = L.layerGroup().addTo(map); // 반경 원 + 가운데 표시
 const siteLayer = L.layerGroup(); // 직접 그린 대상지들
 const marketBaseLayer = L.layerGroup(); // 온누리: 위치를 아는 모든 시장(흐린 점)
 const regionLayer = L.layerGroup(); // 전국 상권 현황: 시도마다 원 하나
+const festivalLayer = L.layerGroup(); // 축제: 마름모 표시(DOM 마커라 항상 점 위에 뜬다)
 const storeLayer = L.layerGroup().addTo(map);
 const drawLayer = L.layerGroup().addTo(map); // 그리는 중인 선
 
@@ -324,6 +325,7 @@ function render() {
   renderStores();
   renderStats();
   drawRegionLayer(); // 그리기·위치 찍기 중에는 시도 원도 클릭을 가로채지 않게 다시 그린다
+  drawFestivals();
 }
 
 function renderStores() {
@@ -402,6 +404,7 @@ function renderStats() {
   $('result').hidden = !data;
   if (!data) return;
   renderRegionNote();
+  renderFestivalNote();
 
   const stores = data.stores;
   const onnuriData = data.source === 'onnuri';
@@ -775,6 +778,7 @@ async function exportExcel() {
         autoFilter: true,
       },
       ...sorted.map((g) => ({ name: g.label, rows: [header, ...g.stores.map(row)], widths, header: true, autoFilter: true })),
+      ...festivalSheets(data),
     ]);
     download(
       new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
@@ -846,6 +850,7 @@ async function exportOnnuriExcel(data) {
       header: true,
       autoFilter: true,
     },
+    ...festivalSheets(data),
   ]);
   download(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName('품목별', 'xlsx'));
 }
@@ -1169,11 +1174,15 @@ function marketPopup(m, shownCount) {
 
 // ── 온누리: 시장 위치 직접 찍기 ────────────────────────────────────────
 function startPinning(market) {
+  startPin(`‘${market.name}’(${market.sido})`, (latlng) => saveMarketPin(market, latlng));
+}
+
+function startPin(label, onPick) {
   if (drawing.active) stopDrawing();
   map.closePopup();
-  pinning = { market };
+  pinning = { label, onPick };
   map.getContainer().classList.add('drawing');
-  setStatus(`‘${market.name}’(${market.sido}) 자리를 지도에서 누르세요. 그만두려면 Esc를 누르세요.`, 'pin');
+  setStatus(`${label} 자리를 지도에서 누르세요. 그만두려면 Esc를 누르세요.`, 'pin');
   render();
   renderSites();
 }
@@ -1185,9 +1194,13 @@ function stopPinning() {
   renderSites();
 }
 
-async function savePin(latlng) {
-  const { market } = pinning;
+function savePin(latlng) {
+  const { onPick } = pinning;
   stopPinning();
+  onPick(latlng);
+}
+
+async function saveMarketPin(market, latlng) {
   try {
     await requestJson('/api/onnuri/location', { body: { id: market.id, lat: latlng.lat, lng: latlng.lng } });
     setStatus(`‘${market.name}’ 위치를 저장했어요.`);
@@ -1720,6 +1733,340 @@ function setRegionStatus(message, kind = '') {
   status.hidden = !message;
 }
 
+// ── 축제 정보 (CSV, 주소로 위치 찾기) ──────────────────────────────────
+// 마름모 표시: 진행 중·예정은 분홍, 지난 축제는 회색. 같은 장소의 축제는 하나로 묶어 숫자를 붙인다.
+const fest = { status: null, list: [], shown: true, filter: 'all', poll: null, listAt: 0 };
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+function festivalPhase(f, today = todayIso()) {
+  if (!f.start) return '';
+  const end = f.end || f.start;
+  if (end < today) return 'past';
+  if (f.start > today) return 'upcoming';
+  return 'ongoing';
+}
+const PHASE_LABEL = { ongoing: '진행 중', upcoming: '예정', past: '지난 축제', '': '날짜 없음' };
+
+function filteredFestivals() {
+  if (fest.filter === 'current') return fest.list.filter((f) => ['ongoing', 'upcoming'].includes(festivalPhase(f)));
+  if (/^\d{4}$/.test(fest.filter)) return fest.list.filter((f) => (f.start || '').startsWith(fest.filter));
+  return fest.list;
+}
+
+function formatPeriod(f) {
+  if (!f.start) return '';
+  if (!f.end || f.end === f.start) return f.start;
+  return f.start.slice(0, 4) === f.end.slice(0, 4) ? `${f.start} ~ ${f.end.slice(5)}` : `${f.start} ~ ${f.end}`;
+}
+
+// 주소에 "https://"가 없는 홈페이지(예: yctf.or.kr/azalea/)는 붙여 준다. 그 밖의 주소 형식은 쓰지 않는다.
+function safeUrl(url) {
+  const u = String(url || '').trim();
+  if (/^https?:\/\/[^\s]+$/i.test(u)) return u;
+  if (/^[\w-]+(\.[\w-]+)+(\/[^\s]*)?$/.test(u)) return `https://${u}`;
+  return '';
+}
+
+function distanceMeters(a, b) {
+  const rad = (d) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  return 2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function insidePolygon(lat, lng, points) {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const [yi, xi] = points[i];
+    const [yj, xj] = points[j];
+    if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// 지금 결과(반경·대상지) 안에 있는 축제 (위에서 고른 기간만)
+function festivalsInScope(data) {
+  if (!data) return [];
+  const located = filteredFestivals().filter((f) => f.lat != null);
+  if (data.kind === 'area' && data.points) return located.filter((f) => insidePolygon(f.lat, f.lng, data.points));
+  if (data.center && data.radius) return located.filter((f) => distanceMeters(data.center, f) <= data.radius);
+  return [];
+}
+
+async function loadFestivals() {
+  try {
+    const payload = await requestJson('/api/festivals');
+    fest.status = payload.status;
+    fest.list = payload.festivals;
+    fest.listAt = Date.now();
+  } catch (err) {
+    setFestivalStatus(err.message, 'error');
+    return;
+  }
+  renderFestivalPanel();
+  drawFestivals();
+  if (state.data) renderFestivalNote();
+  pollFestivals();
+}
+
+function pollFestivals() {
+  clearTimeout(fest.poll);
+  if (!fest.status?.search.running) return;
+  fest.poll = setTimeout(async () => {
+    const st = await requestJson('/api/festivals/status').catch(() => null);
+    if (st) fest.status = st;
+    if (!st || !st.search.running || Date.now() - fest.listAt > 10_000) {
+      await loadFestivals(); // 끝났거나 한참 지났으면 위치를 새로 받아 지도에 반영
+      return;
+    }
+    renderFestivalPanel();
+    pollFestivals();
+  }, 2000);
+}
+
+function renderFestivalPanel() {
+  const st = fest.status;
+  if (!st) return;
+  $('festival-file').textContent = st.loaded
+    ? [st.fileName || '축제 파일', formatDate(st.dataDate), `축제 ${numberFormat.format(st.festivals)}개`, `장소 ${numberFormat.format(st.addresses)}곳`]
+        .filter(Boolean)
+        .join(' · ')
+    : '‘축제 정보’ CSV 파일(축제명·주소 열이 있는 파일)을 올리면 지도에 보여 줘요. 한 번 올리면 저장됩니다.';
+  if (st.error) setFestivalStatus(st.error, 'error');
+  $('festival-body').hidden = !st.loaded;
+  if (!st.loaded) return;
+
+  const share = st.addresses ? st.located / st.addresses : 0;
+  $('festival-located').textContent =
+    `위치를 아는 장소 ${numberFormat.format(st.located)} / ${numberFormat.format(st.addresses)}곳 — ` +
+    `주소로 찾음 ${numberFormat.format(st.bySource.search)} · 시군 중심(대략) ${numberFormat.format(st.bySource.approx)} · 직접 찍음 ${numberFormat.format(st.bySource.manual)}`;
+  $('festival-progress').style.width = `${share * 100}%`;
+  const s = st.search;
+  $('festival-search').textContent = s.running ? '멈추기' : '위치 찾기';
+  $('festival-search').hidden = !s.running && st.located + st.notFound >= st.addresses;
+  $('festival-search-status').textContent = s.running
+    ? `주소로 위치를 찾는 중 ${numberFormat.format(s.done)} / ${numberFormat.format(s.total)}곳 · 남은 시간 약 ${formatDuration(s.etaSeconds)}`
+    : s.message || (st.located < st.addresses ? '주소로 위치를 찾아요(1초에 한 번씩이라 몇 분 걸려요). 찾은 위치는 저장됩니다.' : '');
+  $('festival-retry').hidden = s.running || !st.notFound;
+  $('festival-retry').textContent = `못 찾은 ${numberFormat.format(st.notFound)}곳 다시 찾기`;
+
+  // 기간 고르기: 전체 / 진행 중·예정 / 해마다
+  const years = [...new Set(fest.list.map((f) => (f.start || '').slice(0, 4)).filter(Boolean))].sort().reverse();
+  const options = [['all', `전체 (${fest.list.length}개)`], ['current', '진행 중·예정'], ...years.map((y) => [y, `${y}년`])];
+  const select = $('festival-filter');
+  if ([...select.options].map((o) => o.value).join('|') !== options.map(([v]) => v).join('|')) {
+    select.replaceChildren(
+      ...options.map(([value, label]) => {
+        const o = el('option', null, label);
+        o.value = value;
+        return o;
+      }),
+    );
+  }
+  select.value = fest.filter;
+  $('festival-toggle').setAttribute('aria-pressed', String(fest.shown));
+  $('festival-toggle').textContent = fest.shown ? '지도에서 숨기기' : '지도에 보기';
+
+  // 목록: 진행 중·예정(가까운 날 먼저) → 지난 축제(최근 먼저), 50개까지
+  const rank = { ongoing: 0, upcoming: 1, past: 2, '': 3 };
+  const list = [...filteredFestivals()].sort((a, b) => {
+    const pa = festivalPhase(a);
+    const pb = festivalPhase(b);
+    if (pa !== pb) return rank[pa] - rank[pb];
+    return pa === 'past' ? (b.start || '').localeCompare(a.start || '') : (a.start || '').localeCompare(b.start || '');
+  });
+  const shown = list.slice(0, 50).map((f) => {
+    const li = el('li', 'festival-item');
+    const button = el('button', 'festival-pick');
+    button.type = 'button';
+    const phase = festivalPhase(f);
+    const title = el('span', 'festival-name', f.name);
+    title.prepend(el('span', `festival-chip ${phase || 'none'}`, PHASE_LABEL[phase]));
+    button.append(title, el('span', 'festival-meta', [f.region, formatPeriod(f), f.lat == null ? '위치 없음' : ''].filter(Boolean).join(' · ')));
+    button.addEventListener('click', () => focusFestival(f));
+    li.append(button);
+    return li;
+  });
+  if (list.length > 50) shown.push(el('li', 'empty', `외 ${numberFormat.format(list.length - 50)}개 — 기간을 골라 좁혀 보세요.`));
+  $('festival-list').replaceChildren(...(shown.length ? shown : [el('li', 'empty', '고른 기간에 축제가 없어요.')]));
+}
+
+function focusFestival(f) {
+  if (f.lat == null) {
+    startFestivalPin(f);
+    return;
+  }
+  if (!fest.shown) toggleFestivals(true);
+  map.setView([f.lat, f.lng], Math.max(map.getZoom(), 14));
+  festivalLayer.eachLayer((m) => {
+    if (m.festivalAddress === f.address) m.openPopup();
+  });
+}
+
+function drawFestivals() {
+  festivalLayer.clearLayers();
+  if (!fest.shown) return;
+  const groups = new Map();
+  for (const f of filteredFestivals()) {
+    if (f.lat == null) continue;
+    const key = f.address;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(f);
+  }
+  for (const [address, list] of groups) {
+    const phases = list.map((f) => festivalPhase(f));
+    const active = phases.includes('ongoing') || phases.includes('upcoming');
+    const icon = L.divIcon({
+      className: '',
+      html: `<span class="festival-icon${active ? ' active' : ''}${list[0].locSource === 'approx' ? ' approx' : ''}">${list.length > 1 ? `<b>${list.length}</b>` : ''}</span>`,
+      iconSize: [18, 18],
+      iconAnchor: [9, 9],
+    });
+    const marker = L.marker([list[0].lat, list[0].lng], { icon, keyboard: false, interactive: !mapBusy(), zIndexOffset: active ? 500 : 0 });
+    marker.festivalAddress = address;
+    marker.bindTooltip(() => el('span', null, list.length > 1 ? `${list[0].name} 외 ${list.length - 1}개` : list[0].name), { direction: 'top', offset: [0, -8] });
+    marker.bindPopup(() => festivalPopup(list), { maxWidth: 340 });
+    festivalLayer.addLayer(marker);
+  }
+}
+
+function festivalPopup(list) {
+  const root = el('div', 'popup');
+  const sorted = [...list].sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+  root.append(el('div', 'popup-address', sorted[0].address));
+  if (list.length > 1) root.append(el('div', 'popup-count', `이 장소의 축제 ${list.length}개`));
+  const ul = el('ul', 'popup-list');
+  for (const f of sorted.slice(0, 12)) {
+    const li = el('li');
+    const phase = festivalPhase(f);
+    const title = el('strong', null, f.name);
+    title.prepend(el('span', `festival-chip ${phase || 'none'}`, PHASE_LABEL[phase]));
+    li.append(title, el('span', 'popup-meta', [formatPeriod(f), f.host, f.phone].filter(Boolean).join(' · ')));
+    const links = el('span', 'popup-links');
+    for (const [label, url] of [['상세정보', f.detailUrl], ['홈페이지', f.homepage]]) {
+      const href = safeUrl(url);
+      if (!href) continue;
+      const a = el('a', null, label);
+      a.href = href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      links.append(a);
+    }
+    if (links.childNodes.length) li.append(links);
+    ul.append(li);
+  }
+  root.append(ul);
+  if (list.length > 12) root.append(el('div', 'popup-more', `외 ${list.length - 12}개`));
+  const f = list[0];
+  const where = { search: '주소로 찾은 위치', approx: f.locLabel || '시군 중심(대략)', manual: '직접 찍은 위치' }[f.locSource] || '';
+  root.append(el('div', 'popup-meta', `위치: ${where}`));
+  const actions = el('div', 'popup-actions');
+  const fix = el('button', null, '위치 고치기');
+  fix.type = 'button';
+  fix.addEventListener('click', () => startFestivalPin(f));
+  actions.append(fix);
+  if (f.locSource === 'manual') {
+    const clear = el('button', null, '찍은 위치 지우기');
+    clear.type = 'button';
+    clear.addEventListener('click', () => saveFestivalPin(f, null));
+    actions.append(clear);
+  }
+  root.append(actions);
+  return root;
+}
+
+function startFestivalPin(f) {
+  startPin(`‘${f.name}’ 축제`, (latlng) => saveFestivalPin(f, latlng));
+}
+
+async function saveFestivalPin(f, latlng) {
+  map.closePopup();
+  try {
+    await requestJson('/api/festivals/location', {
+      body: latlng ? { address: f.address, lat: latlng.lat, lng: latlng.lng } : { address: f.address, clear: true },
+    });
+    setStatus(latlng ? `‘${f.name}’ 장소를 저장했어요.` : `‘${f.name}’의 직접 찍은 위치를 지웠어요.`);
+  } catch (err) {
+    setStatus(err.message, 'error');
+    return;
+  }
+  await loadFestivals();
+}
+
+function toggleFestivals(show = !fest.shown) {
+  fest.shown = show;
+  if (show) festivalLayer.addTo(map);
+  else festivalLayer.remove();
+  drawFestivals();
+  renderFestivalPanel();
+}
+
+// 결과 아래: 이 범위 안의 축제
+function renderFestivalNote() {
+  const note = $('festival-note');
+  const inside = fest.list.length ? festivalsInScope(state.data) : [];
+  note.hidden = !inside.length;
+  if (!inside.length) return;
+  const names = inside
+    .sort((a, b) => (b.start || '').localeCompare(a.start || ''))
+    .slice(0, 4)
+    .map((f) => `${f.name}(${formatPeriod(f)})`);
+  note.textContent = `이 범위 안 축제 ${inside.length}개 — ${names.join(', ')}${inside.length > 4 ? ' …' : ''}`;
+}
+
+// 엑셀에 넣을 '축제' 시트 (범위 안에 축제가 있을 때만)
+function festivalSheets(data) {
+  const inside = festivalsInScope(data);
+  if (!inside.length) return [];
+  return [
+    {
+      name: '축제',
+      header: true,
+      autoFilter: true,
+      widths: [28, 10, 22, 8, 44, 16, 24, 40, 40],
+      rows: [
+        ['축제명', '지역', '기간', '상태', '주소', '전화', '주최', '상세정보', '홈페이지'],
+        ...inside
+          .sort((a, b) => (b.start || '').localeCompare(a.start || ''))
+          .map((f) => [f.name, f.region, formatPeriod(f), PHASE_LABEL[festivalPhase(f)], f.address, f.phone, f.host, safeUrl(f.detailUrl), safeUrl(f.homepage)]),
+      ],
+    },
+  ];
+}
+
+async function uploadFestivalFile(file) {
+  if (!file) return;
+  setFestivalStatus(`‘${file.name}’ 올리는 중…`, 'loading');
+  let res;
+  try {
+    res = await fetch(`/api/festivals/upload?${new URLSearchParams({ name: file.name })}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: file,
+    });
+  } catch {
+    setFestivalStatus('지도 프로그램(까만 창)이 꺼져 있어요. 다시 켠 뒤 이 페이지를 새로고침하세요.', 'error');
+    return;
+  }
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    setFestivalStatus(payload?.error || `파일을 올리지 못했어요 (HTTP ${res.status})`, 'error');
+    return;
+  }
+  setFestivalStatus(`축제 ${numberFormat.format(payload.festivals)}개를 읽었어요.${payload.search.running ? ' 주소로 위치를 찾기 시작했어요.' : ''}`);
+  $('festival-panel').open = true;
+  await loadFestivals();
+}
+
+function setFestivalStatus(message, kind = '') {
+  const status = $('festival-status');
+  status.textContent = message;
+  status.className = `status ${kind}`;
+  status.hidden = !message;
+}
+
 // ── 찾는 방법 바꾸기: 반경(원) ↔ 영역 직접 그리기 ──────────────────────
 function setMode(mode) {
   if (state.mode === mode) return;
@@ -2088,6 +2435,7 @@ async function exportSitesExcel() {
       ['면적(㎡)', ...sites.map((s) => s.data.areaM2)],
       ['데이터 기준', ...sites.map((s) => (isOnnuri ? formatDate(s.data.dataDate) : formatYearMonth(s.data.stdrYm)) || '-')],
     );
+    if (fest.list.length) compare.push(['축제 수', ...sites.map((s) => festivalsInScope(s.data).length)]);
     if (sites.some((s) => s.data.truncated)) {
       compare.push(['주의', '범위 안에 너무 많은 대상지는 일부만 불러왔습니다. 작게 나눠 그리면 전부 받을 수 있습니다.']);
     }
@@ -2219,6 +2567,38 @@ $('onnuri-unlocated-q').addEventListener('input', () => {
   clearTimeout(unlocatedTimer);
   unlocatedTimer = setTimeout(loadUnlocated, 300);
 });
+$('festival-input').addEventListener('change', (e) => {
+  uploadFestivalFile(e.target.files[0]);
+  e.target.value = '';
+});
+$('festival-search').addEventListener('click', async () => {
+  try {
+    fest.status = await requestJson('/api/festivals/search', { body: { action: fest.status?.search.running ? 'stop' : 'start' } });
+  } catch (err) {
+    setFestivalStatus(err.message, 'error');
+  }
+  renderFestivalPanel();
+  pollFestivals();
+});
+$('festival-retry').addEventListener('click', async () => {
+  try {
+    await requestJson('/api/festivals/search', { body: { action: 'retry' } });
+    fest.status = await requestJson('/api/festivals/search', { body: { action: 'start' } });
+  } catch (err) {
+    setFestivalStatus(err.message, 'error');
+  }
+  renderFestivalPanel();
+  pollFestivals();
+});
+$('festival-filter').addEventListener('change', (e) => {
+  fest.filter = e.target.value;
+  renderFestivalPanel();
+  drawFestivals();
+  if (state.data) renderFestivalNote();
+});
+$('festival-toggle').addEventListener('click', () => toggleFestivals());
+festivalLayer.addTo(map);
+loadFestivals();
 $('region-panel').addEventListener('toggle', () => {
   if ($('region-panel').open && !region.data) loadRegion();
 });

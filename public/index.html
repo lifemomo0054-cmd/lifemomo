@@ -66,6 +66,35 @@
         </div>
       </section>
 
+      <details id="festival-panel" class="region-section">
+        <summary>축제 정보 <span class="region-sub">CSV 파일 · 지도에 마름모로 표시</span></summary>
+        <div class="region-body">
+          <div class="overlay-top">
+            <p id="festival-file" class="hint"></p>
+            <label class="file-button">
+              CSV 올리기
+              <input id="festival-input" class="sr-only" type="file" accept=".csv">
+            </label>
+          </div>
+          <p id="festival-status" class="status" role="status" aria-live="polite" hidden></p>
+          <div id="festival-body" class="onnuri-locations" hidden>
+            <p id="festival-located" class="onnuri-located"></p>
+            <div class="progress" aria-hidden="true"><span id="festival-progress"></span></div>
+            <div class="onnuri-search-row">
+              <p id="festival-search-status" class="hint" aria-live="polite"></p>
+              <button type="button" id="festival-search" class="export-button">위치 찾기</button>
+            </div>
+            <button type="button" id="festival-retry" class="link-button" hidden></button>
+            <div class="region-controls">
+              <label class="sr-only" for="festival-filter">기간</label>
+              <select id="festival-filter"></select>
+              <button type="button" id="festival-toggle" class="export-button" aria-pressed="true">지도에서 숨기기</button>
+            </div>
+            <ol id="festival-list" class="festival-list"></ol>
+          </div>
+        </div>
+      </details>
+
       <details id="region-panel" class="region-section">
         <summary>전국 상권 현황 <span class="region-sub">시도별 · 공공데이터 API</span></summary>
         <div class="region-body">
@@ -156,6 +185,7 @@
         <p id="truncated" class="notice notice-warn" hidden></p>
         <p id="result-note" class="notice notice-warn" hidden></p>
         <p id="region-note" class="notice notice-info" hidden></p>
+        <p id="festival-note" class="notice notice-festival" hidden></p>
 
         <div id="level-tabs" class="levels" role="group" aria-label="분류 단계"></div>
         <p id="level-hint" class="hint">업종을 누르면 지도에 그 업종만 표시합니다.</p>
